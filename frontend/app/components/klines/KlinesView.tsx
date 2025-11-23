@@ -33,6 +33,9 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
   const [currentTask, setCurrentTask] = useState<BackfillTask | null>(null)
   const [loading, setLoading] = useState(false)
   const [isPageVisible, setIsPageVisible] = useState(true)
+  const [chartType, setChartType] = useState<'candlestick' | 'line' | 'area'>('candlestick')
+  const [selectedIndicators, setSelectedIndicators] = useState<string[]>([])
+  const [chartLoading, setChartLoading] = useState(false)
 
   const marketDataIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const taskCheckIntervalRef = useRef<NodeJS.Timeout | null>(null)
@@ -241,8 +244,8 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
 
   return (
     <div className="flex flex-col h-full space-y-4">
-      {/* Symbol Selection and Market Data */}
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4 flex-shrink-0">
+      {/* Symbol Selection, Market Data and Technical Indicators */}
+      <div className="grid grid-cols-1 lg:grid-cols-6 gap-4 flex-shrink-0">
         {/* Symbol and Period Selection */}
         <Card>
           <CardContent className="pt-4 space-y-3">
@@ -289,13 +292,13 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
         </Card>
 
         {/* Market Data */}
-        <Card className="lg:col-span-3">
+        <Card className="lg:col-span-2">
           <CardHeader className="py-3">
             <CardTitle className="text-sm">Market Data</CardTitle>
           </CardHeader>
           <CardContent className="pt-0">
             {selectedSymbol && (
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 gap-4">
                 {(() => {
                   const data = getSymbolMarketData(selectedSymbol)
                   return data ? (
@@ -323,7 +326,7 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
                       </div>
                     </>
                   ) : (
-                    <div className="col-span-4 text-center text-muted-foreground">
+                    <div className="col-span-2 text-center text-muted-foreground">
                       <div className="flex items-center justify-center gap-2">
                         <PacmanLoader className="w-12 h-6" />
                         Loading market data...
@@ -335,19 +338,124 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
             )}
           </CardContent>
         </Card>
+
+        {/* Technical Indicators */}
+        <Card className="lg:col-span-3">
+          <CardHeader className="py-3">
+            <CardTitle className="text-sm">Technical Indicators</CardTitle>
+          </CardHeader>
+          <CardContent className="pt-0 space-y-3">
+            {/* Trend Indicators */}
+            <div>
+              <div className="text-xs text-muted-foreground mb-2">Trend Analysis</div>
+              <div className="flex flex-wrap gap-1">
+                {['MA5', 'MA10', 'MA20', 'EMA20', 'EMA50'].map(indicator => (
+                  <button
+                    key={indicator}
+                    onClick={() => {
+                      setSelectedIndicators(prev =>
+                        prev.includes(indicator)
+                          ? prev.filter(i => i !== indicator)
+                          : [...prev, indicator]
+                      )
+                    }}
+                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                      selectedIndicators.includes(indicator)
+                        ? 'bg-primary/20 text-primary border border-primary/30'
+                        : 'hover:bg-muted border'
+                    }`}
+                  >
+                    {indicator}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Oscillator & Volatility Indicators */}
+            <div>
+              <div className="text-xs text-muted-foreground mb-2">Momentum Oscillators & Volatility</div>
+              <div className="flex flex-wrap gap-1">
+                {['RSI14', 'RSI7', 'MACD', 'BOLL', 'ATR14'].map(indicator => (
+                  <button
+                    key={indicator}
+                    onClick={() => {
+                      setSelectedIndicators(prev =>
+                        prev.includes(indicator)
+                          ? prev.filter(i => i !== indicator)
+                          : [...prev, indicator]
+                      )
+                    }}
+                    className={`px-2 py-1 text-xs rounded transition-colors ${
+                      selectedIndicators.includes(indicator)
+                        ? 'bg-primary/20 text-primary border border-primary/30'
+                        : 'hover:bg-muted border'
+                    }`}
+                  >
+                    {indicator}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       {/* K-Line Chart Area - 动态高度铺满剩余空间 */}
       <Card className="flex-1 min-h-0">
         <CardHeader className="py-3">
-          <CardTitle className="text-sm">
-            {selectedSymbol} K-Line Chart ({selectedPeriod})
-          </CardTitle>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <CardTitle className="text-sm">
+                {selectedSymbol} K-Line Chart ({selectedPeriod})
+              </CardTitle>
+              {chartLoading && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <PacmanLoader className="w-12 h-6" />
+                  Loading K-line data...
+                </div>
+              )}
+            </div>
+            <div className="flex gap-1 bg-background/80 backdrop-blur-sm rounded-md p-1 border">
+              <button
+                onClick={() => setChartType('candlestick')}
+                className={`px-2 py-1 text-xs rounded transition-colors ${
+                  chartType === 'candlestick'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted'
+                }`}
+              >
+                Candlestick
+              </button>
+              <button
+                onClick={() => setChartType('line')}
+                className={`px-2 py-1 text-xs rounded transition-colors ${
+                  chartType === 'line'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted'
+                }`}
+              >
+                Line
+              </button>
+              <button
+                onClick={() => setChartType('area')}
+                className={`px-2 py-1 text-xs rounded transition-colors ${
+                  chartType === 'area'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'hover:bg-muted'
+                }`}
+              >
+                Area
+              </button>
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="h-[calc(100%-3rem)] pb-4">
           <TradingViewChart
             symbol={selectedSymbol}
             period={selectedPeriod}
+            chartType={chartType}
+            selectedIndicators={selectedIndicators}
+            onLoadingChange={setChartLoading}
           />
         </CardContent>
       </Card>
