@@ -27,7 +27,7 @@ WORKDIR /app/backend
 RUN pip install --no-cache-dir -e .
 
 # Copy built frontend
-COPY --from=frontend-builder /app/frontend/dist ./static/
+COPY --from=frontend-builder /app/frontend/dist /app/backend/static/
 
 # Expose port
 EXPOSE 8802

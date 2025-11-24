@@ -22,7 +22,7 @@ dependencies = [
     "msgpack>=1.0.0",
     "eth-utils>=2.0.0",
     "hyperliquid-python-sdk>=0.20.0",
-    "pandas-ta==0.3.14b0",
+    "pandas-ta==0.4.67b0",
 ]
 
 [tool.uv]

@@ -251,7 +251,7 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
   }
 
   return (
-    <div className="flex flex-col h-full space-y-4">
+    <div className="flex flex-col h-full space-y-4 w-full overflow-hidden">
       {/* Symbol Selection, Market Data and Technical Indicators */}
       <div className="grid grid-cols-1 lg:grid-cols-6 gap-3 flex-shrink-0">
         {/* Symbol and Period Selection */}
@@ -273,7 +273,7 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
               </Select>
 
               <Select value={selectedPeriod} onValueChange={setSelectedPeriod}>
-                <SelectTrigger className="w-20">
+                <SelectTrigger className="w-16 sm:w-20">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -339,7 +339,7 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
                       </div>
                     </>
                   ) : (
-                    <div className="col-span-2 text-center text-muted-foreground">
+                    <div className="col-span-full text-center text-muted-foreground">
                       <div className="flex items-center justify-center gap-2">
                         <PacmanLoader className="w-12 h-6" />
                         Loading market data...
@@ -361,7 +361,7 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
             {/* Trend Indicators */}
             <div>
               <div className="text-xs text-muted-foreground mb-2">Trend Analysis</div>
-              <div className="flex flex-wrap gap-1">
+              <div className="grid grid-cols-5 gap-1">
                 {['MA5', 'MA10', 'MA20', 'EMA20', 'EMA50'].map(indicator => (
                   <button
                     key={indicator}
@@ -387,7 +387,7 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
             {/* Oscillator & Volatility Indicators */}
             <div>
               <div className="text-xs text-muted-foreground mb-2">Momentum Oscillators & Volatility</div>
-              <div className="flex flex-wrap gap-1">
+              <div className="grid grid-cols-5 gap-1">
                 {['RSI14', 'RSI7', 'MACD', 'BOLL', 'ATR14'].map(indicator => (
                   <button
                     key={indicator}
@@ -414,7 +414,7 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
       </div>
 
       {/* K-Line Chart Area - 动态高度铺满剩余空间 */}
-      <Card className="flex-1 min-h-0">
+      <Card className="flex-1 min-h-0 min-w-0 overflow-hidden">
         <CardHeader className="py-3">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">

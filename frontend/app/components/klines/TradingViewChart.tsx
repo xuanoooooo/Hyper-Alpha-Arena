@@ -159,7 +159,7 @@ export default function TradingViewChart({ symbol, period, chartType, selectedIn
       // 创建图表 - 使用正确的Panel架构
       const chart = createChart(container, {
         width: container.clientWidth,
-        height: container.clientHeight || 400,
+        height: Math.max(container.clientHeight || 300, 300),
         layout: {
           background: { color: 'transparent' },
           textColor: '#9ca3af',
@@ -339,17 +339,22 @@ export default function TradingViewChart({ symbol, period, chartType, selectedIn
       atrSeriesRef.current = atrSeries
 
       // 监听容器大小变化
+      let resizeTimeout: NodeJS.Timeout
       const resizeObserver = new ResizeObserver(entries => {
-        for (const entry of entries) {
-          const { width, height } = entry.contentRect
-          if (chartRef.current && width > 0 && height > 0) {
-            chartRef.current.applyOptions({ width, height })
+        clearTimeout(resizeTimeout)
+        resizeTimeout = setTimeout(() => {
+          for (const entry of entries) {
+            const { width, height } = entry.contentRect
+            if (chartRef.current && width > 0 && height > 0) {
+              chartRef.current.applyOptions({ width, height })
+            }
           }
-        }
+        }, 100)
       })
       resizeObserver.observe(container)
 
       return () => {
+        clearTimeout(resizeTimeout)
         resizeObserver.disconnect()
         if (chartRef.current) {
           chartRef.current.remove()
@@ -407,7 +412,7 @@ export default function TradingViewChart({ symbol, period, chartType, selectedIn
         // 创建图表 - 使用正确的Panel架构
         const chart = createChart(container, {
           width: container.clientWidth,
-          height: container.clientHeight || 400,
+          height: Math.max(container.clientHeight || 300, 300),
           layout: {
             background: { color: 'transparent' },
             textColor: '#9ca3af',
