@@ -8,7 +8,7 @@ from typing import List, Dict, Any, Optional
 from pydantic import BaseModel
 import logging
 
-from services.market_data import get_last_price, get_kline_data, get_market_status
+from services.market_data import get_last_price, get_kline_data, get_market_status, get_ticker_data
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +20,12 @@ class PriceResponse(BaseModel):
     symbol: str
     market: str
     price: float
+    oracle_price: Optional[float] = 0
+    change24h: Optional[float] = 0
+    volume24h: Optional[float] = 0
+    percentage24h: Optional[float] = 0
+    open_interest: Optional[float] = 0
+    funding_rate: Optional[float] = 0
     timestamp: int
 
 
@@ -68,13 +74,19 @@ async def get_crypto_price(symbol: str, market: str = "US"):
         Response containing latest price
     """
     try:
-        price = get_last_price(symbol, market)
-        
+        ticker_data = get_ticker_data(symbol, market)
+
         import time
         return PriceResponse(
-            symbol=symbol,
+            symbol=ticker_data['symbol'],
             market=market,
-            price=price,
+            price=ticker_data['price'],
+            oracle_price=ticker_data.get('oracle_price', 0),
+            change24h=ticker_data['change24h'],
+            volume24h=ticker_data['volume24h'],
+            percentage24h=ticker_data['percentage24h'],
+            open_interest=ticker_data.get('open_interest', 0),
+            funding_rate=ticker_data.get('funding_rate', 0),
             timestamp=int(time.time() * 1000)
         )
     except Exception as e:
@@ -105,15 +117,21 @@ async def get_multiple_prices(symbols: str, market: str = "hyperliquid"):
         
         for symbol in symbol_list:
             try:
-                price = get_last_price(symbol, market)
+                ticker_data = get_ticker_data(symbol, market)
                 results.append(PriceResponse(
-                    symbol=symbol,
+                    symbol=ticker_data['symbol'],
                     market=market,
-                    price=price,
+                    price=ticker_data['price'],
+                    oracle_price=ticker_data.get('oracle_price', 0),
+                    change24h=ticker_data['change24h'],
+                    volume24h=ticker_data['volume24h'],
+                    percentage24h=ticker_data['percentage24h'],
+                    open_interest=ticker_data.get('open_interest', 0),
+                    funding_rate=ticker_data.get('funding_rate', 0),
                     timestamp=current_timestamp
                 ))
             except Exception as e:
-                logger.warning(f"Failed to get {symbol} price: {e}")
+                logger.warning(f"Failed to get {symbol} ticker data: {e}")
                 # Continue processing other cryptos without interrupting the entire request
                 
         return results

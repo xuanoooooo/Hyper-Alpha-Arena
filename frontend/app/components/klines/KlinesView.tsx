@@ -12,8 +12,12 @@ interface KlinesViewProps {
 interface MarketData {
   symbol: string
   price: number
+  oracle_price: number
   change24h: number
   volume24h: number
+  percentage24h: number
+  open_interest: number
+  funding_rate: number
 }
 
 interface BackfillTask {
@@ -123,8 +127,12 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
       const formattedData = data.map((item: any) => ({
         symbol: item.symbol,
         price: item.price || 0,
-        change24h: 0,
-        volume24h: 0
+        oracle_price: item.oracle_price || 0,
+        change24h: item.change24h || 0,
+        volume24h: item.volume24h || 0,
+        percentage24h: item.percentage24h || 0,
+        open_interest: item.open_interest || 0,
+        funding_rate: item.funding_rate || 0
       }))
       setMarketData(formattedData)
     } catch (error) {
@@ -245,7 +253,7 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
   return (
     <div className="flex flex-col h-full space-y-4">
       {/* Symbol Selection, Market Data and Technical Indicators */}
-      <div className="grid grid-cols-1 lg:grid-cols-6 gap-4 flex-shrink-0">
+      <div className="grid grid-cols-1 lg:grid-cols-6 gap-3 flex-shrink-0">
         {/* Symbol and Period Selection */}
         <Card>
           <CardContent className="pt-4 space-y-3">
@@ -298,19 +306,23 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
           </CardHeader>
           <CardContent className="pt-0">
             {selectedSymbol && (
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
                 {(() => {
                   const data = getSymbolMarketData(selectedSymbol)
                   return data ? (
                     <>
                       <div>
-                        <p className="text-xs text-muted-foreground">Current Price</p>
-                        <p className="text-lg font-semibold">${data.price.toLocaleString()}</p>
+                        <p className="text-xs text-muted-foreground">Mark</p>
+                        <p className="text-lg font-semibold">{data.price.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Oracle</p>
+                        <p className="text-lg font-semibold">{data.oracle_price.toLocaleString()}</p>
                       </div>
                       <div>
                         <p className="text-xs text-muted-foreground">24h Change</p>
                         <p className={`text-lg font-semibold ${data.change24h >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {data.change24h >= 0 ? '+' : ''}{data.change24h.toFixed(2)}%
+                          {data.change24h >= 0 ? '+' : ''}{data.change24h.toFixed(0)} / {data.percentage24h >= 0 ? "+" : ""}{data.percentage24h.toFixed(2)}%
                         </p>
                       </div>
                       <div>
@@ -318,11 +330,12 @@ export default function KlinesView({ onAccountUpdated }: KlinesViewProps) {
                         <p className="text-lg font-semibold">${data.volume24h.toLocaleString()}</p>
                       </div>
                       <div>
-                        <p className="text-xs text-muted-foreground">Data Status</p>
-                        <div className="flex items-center gap-2">
-                          <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" />
-                          <span className="text-sm">Live Updates</span>
-                        </div>
+                        <p className="text-xs text-muted-foreground">Open Interest</p>
+                        <p className="text-lg font-semibold">${data.open_interest.toLocaleString()}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-muted-foreground">Funding Rate</p>
+                        <p className="text-lg font-semibold">{(data.funding_rate * 100).toFixed(4)}%</p>
                       </div>
                     </>
                   ) : (
