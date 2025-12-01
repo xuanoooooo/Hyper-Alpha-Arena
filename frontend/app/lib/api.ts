@@ -834,6 +834,11 @@ export async function getMembershipInfo(): Promise<MembershipResponse> {
     if (!response.ok) {
       if (response.status === 401) {
         // User not authenticated or no membership
+        // This can happen if:
+        // 1. User is not logged in to www.akooi.com
+        // 2. Cross-site cookies are blocked (localhost access with old cookies)
+        // 3. Token has expired
+        console.warn('[Membership] 401 Unauthorized - Please re-login at https://www.akooi.com to refresh your session')
         return { membership: null }
       }
       throw new Error(`Failed to fetch membership info: ${response.status}`)

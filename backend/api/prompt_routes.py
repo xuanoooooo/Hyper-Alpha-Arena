@@ -498,17 +498,6 @@ def ai_chat(
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Check premium subscription
-    subscription = db.query(UserSubscription).filter(
-        UserSubscription.user_id == user.id
-    ).first()
-
-    if not subscription or subscription.subscription_type != "premium":
-        raise HTTPException(
-            status_code=403,
-            detail="This feature is only available for premium members"
-        )
-
     # Get AI Trader account
     account = db.query(Account).filter(Account.id == request.account_id).first()
     if not account:
@@ -550,17 +539,6 @@ def list_ai_conversations(
     user = db.query(User).filter(User.username == "default").first()
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-
-    # Check premium subscription
-    subscription = db.query(UserSubscription).filter(
-        UserSubscription.user_id == user.id
-    ).first()
-
-    if not subscription or subscription.subscription_type != "premium":
-        raise HTTPException(
-            status_code=403,
-            detail="This feature is only available for premium members"
-        )
 
     conversations = get_conversation_history(
         db=db,
