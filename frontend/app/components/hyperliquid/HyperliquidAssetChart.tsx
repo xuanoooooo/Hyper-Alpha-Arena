@@ -262,13 +262,13 @@ export default function HyperliquidAssetChart({
   const getTradeMarkerStyle = (side: string) => {
     switch (side.toUpperCase()) {
       case 'BUY':
-        return { bg: '#10B981', letter: 'B' } // emerald-500
+        return { bg: '#10B981', letter: 'B' } // emerald-500 (green)
       case 'SELL':
-        return { bg: '#EF4444', letter: 'S' } // red-500
+        return { bg: '#EF4444', letter: 'S' } // red-500 (red)
       case 'CLOSE':
-        return { bg: '#EF4444', letter: 'C' } // red-500 (same as SELL)
+        return { bg: '#3B82F6', letter: 'C' } // blue-500 (blue)
       case 'HOLD':
-        return { bg: '#6B7280', letter: 'H' } // gray-500
+        return { bg: '#6B7280', letter: 'H' } // gray-500 (gray)
       default:
         return { bg: '#F97316', letter: '?' } // orange-500
     }

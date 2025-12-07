@@ -712,8 +712,10 @@ export default function AlphaArenaFeed({
                           <span className={`px-2 py-1 rounded text-xs font-bold ${
                             trade.side === 'BUY'
                               ? 'bg-emerald-100 text-emerald-800'
-                              : trade.side === 'CLOSE'
+                              : trade.side === 'SELL'
                               ? 'bg-red-100 text-red-800'
+                              : trade.side === 'CLOSE'
+                              ? 'bg-blue-100 text-blue-800'
                               : trade.side === 'HOLD'
                               ? 'bg-gray-200 text-gray-800'
                               : 'bg-orange-100 text-orange-800'
@@ -816,8 +818,10 @@ export default function AlphaArenaFeed({
                           <span className={`px-2 py-1 rounded text-xs font-bold ${
                             entry.operation?.toUpperCase() === 'BUY'
                               ? 'bg-emerald-100 text-emerald-800'
-                              : entry.operation?.toUpperCase() === 'CLOSE'
+                              : entry.operation?.toUpperCase() === 'SELL'
                               ? 'bg-red-100 text-red-800'
+                              : entry.operation?.toUpperCase() === 'CLOSE'
+                              ? 'bg-blue-100 text-blue-800'
                               : entry.operation?.toUpperCase() === 'HOLD'
                               ? 'bg-gray-200 text-gray-800'
                               : 'bg-orange-100 text-orange-800'
