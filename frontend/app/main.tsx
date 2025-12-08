@@ -143,6 +143,14 @@ function App() {
               // Save token and user data
               Cookies.default.set('arena_token', tokenParam, { expires: 7 })
               Cookies.default.set('arena_user', JSON.stringify(userData), { expires: 7 })
+
+              // Save refresh token if provided
+              const refreshTokenParam = urlParams.get('refresh_token')
+              if (refreshTokenParam) {
+                console.log('[Callback] Saving refresh_token to cookie, length:', refreshTokenParam.length)
+                Cookies.default.set('arena_refresh_token', refreshTokenParam, { expires: 30 })
+              }
+
               setAuthUser(userData)
               toast.success('Login successful!')
               window.location.href = '/'

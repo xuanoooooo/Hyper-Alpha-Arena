@@ -142,7 +142,7 @@ export async function getSignInUrl(): Promise<string | null> {
       client_id: config.clientId,
       response_type: 'code',
       redirect_uri: redirectUri,
-      scope: 'read',
+      scope: 'read offline_access',  // Add offline_access to get refresh_token
       state: state,
       code_challenge: pkce.codeChallenge,
       code_challenge_method: pkce.codeChallengeMethod,
@@ -157,7 +157,7 @@ export async function getSignInUrl(): Promise<string | null> {
 }
 
 // Exchange authorization code for access token
-export async function exchangeCodeForToken(code: string, state: string): Promise<string | null> {
+export async function exchangeCodeForToken(code: string, state: string): Promise<TokenResponse | null> {
   const config = await loadAuthConfig()
   if (!config) return null
 
@@ -214,13 +214,23 @@ export async function exchangeCodeForToken(code: string, state: string): Promise
 
     const data = await response.json()
     console.log('Token exchange response:', data)
-    const accessToken = data.access_token || null
-    console.log('Extracted access_token:', accessToken ? `${accessToken.substring(0, 10)}...` : 'null')
+
+    const tokenResponse: TokenResponse = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+      token_type: data.token_type,
+      expires_in: data.expires_in,
+      id_token: data.id_token,
+      scope: data.scope
+    }
+
+    console.log('Extracted access_token:', tokenResponse.access_token ? `${tokenResponse.access_token.substring(0, 10)}...` : 'null')
+    console.log('Has refresh_token:', !!tokenResponse.refresh_token)
 
     // Debug: Try to decode JWT token to check its content
-    if (accessToken) {
+    if (tokenResponse.access_token) {
       try {
-        const tokenParts = accessToken.split('.')
+        const tokenParts = tokenResponse.access_token.split('.')
         if (tokenParts.length === 3) {
           // Add padding if needed for base64url decoding
           let payload = tokenParts[1]
@@ -236,12 +246,12 @@ export async function exchangeCodeForToken(code: string, state: string): Promise
         }
       } catch (e) {
         console.log('Token decode error:', e)
-        console.log('Token length:', accessToken.length)
-        console.log('Token starts with:', accessToken.substring(0, 50))
+        console.log('Token length:', tokenResponse.access_token.length)
+        console.log('Token starts with:', tokenResponse.access_token.substring(0, 50))
       }
     }
 
-    return accessToken
+    return tokenResponse
   } catch (error) {
     console.error('Token exchange error:', error)
     return null
@@ -383,5 +393,87 @@ export async function ssoLogout(token: string): Promise<boolean> {
   } catch (error) {
     console.error('SSO logout error:', error)
     return false
+  }
+}
+
+// Get token expiry time from JWT
+export function getTokenExpiryTime(token: string): number | null {
+  try {
+    const parts = token.split('.')
+    if (parts.length !== 3) return null
+
+    const payload = decodeBase64Url(parts[1])
+    const decoded = JSON.parse(payload)
+
+    // Return expiry time in milliseconds
+    return decoded.exp ? decoded.exp * 1000 : null
+  } catch (error) {
+    console.error('[getTokenExpiryTime] Failed to decode token:', error)
+    return null
+  }
+}
+
+// Check if token is expired or will expire soon
+export function isTokenExpiringSoon(token: string, bufferMinutes: number = 5): boolean {
+  const expiryTime = getTokenExpiryTime(token)
+  if (!expiryTime) return true // Treat invalid token as expired
+
+  const bufferMs = bufferMinutes * 60 * 1000
+  const now = Date.now()
+
+  // Return true if token expires within buffer time
+  return now >= (expiryTime - bufferMs)
+}
+
+// Refresh access token using refresh token via relay server (secure - client_secret stays server-side)
+export async function refreshAccessToken(refreshToken: string): Promise<TokenResponse | null> {
+  const config = await loadAuthConfig()
+  if (!config) return null
+
+  try {
+    console.log('[refreshAccessToken] Refreshing token via relay server...')
+
+    // Use relay server at www.akooi.com to handle refresh (keeps client_secret secure)
+    const relayUrl = 'https://www.akooi.com/api/arena-refresh'
+
+    const response = await fetch(relayUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+
+    if (!response.ok) {
+      console.error('[refreshAccessToken] Failed to refresh token:', response.status, response.statusText)
+      const errorText = await response.text()
+      console.error('[refreshAccessToken] Error response:', errorText)
+      return null
+    }
+
+    const data = await response.json()
+    console.log('[refreshAccessToken] Token refreshed successfully')
+
+    const tokenResponse: TokenResponse = {
+      access_token: data.access_token,
+      refresh_token: data.refresh_token || refreshToken, // Use new refresh token if provided, otherwise keep the old one
+      token_type: data.token_type,
+      expires_in: data.expires_in,
+      id_token: data.id_token,
+      scope: data.scope
+    }
+
+    // Log new token expiry time
+    if (tokenResponse.access_token) {
+      const expiryTime = getTokenExpiryTime(tokenResponse.access_token)
+      if (expiryTime) {
+        console.log('[refreshAccessToken] New token expires at:', new Date(expiryTime))
+      }
+    }
+
+    return tokenResponse
+  } catch (error) {
+    console.error('[refreshAccessToken] Error:', error)
+    return null
   }
 }
