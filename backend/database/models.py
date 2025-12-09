@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DECIMAL, TIMESTAMP, ForeignKey, UniqueConstraint, Float, Date, DateTime, Text
+from sqlalchemy import Column, Integer, BigInteger, String, DECIMAL, TIMESTAMP, ForeignKey, UniqueConstraint, Float, Date, DateTime, Text
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 import datetime
@@ -646,7 +646,7 @@ class MarketTradesAggregated(Base):
     id = Column(Integer, primary_key=True, index=True)
     exchange = Column(String(20), nullable=False, default="hyperliquid", index=True)
     symbol = Column(String(20), nullable=False, index=True)
-    timestamp = Column(Integer, nullable=False, index=True)  # milliseconds
+    timestamp = Column(BigInteger, nullable=False, index=True)  # milliseconds
     taker_buy_volume = Column(DECIMAL(24, 8), nullable=False, default=0)
     taker_sell_volume = Column(DECIMAL(24, 8), nullable=False, default=0)
     taker_buy_count = Column(Integer, nullable=False, default=0)
@@ -671,7 +671,7 @@ class MarketOrderbookSnapshots(Base):
     id = Column(Integer, primary_key=True, index=True)
     exchange = Column(String(20), nullable=False, default="hyperliquid", index=True)
     symbol = Column(String(20), nullable=False, index=True)
-    timestamp = Column(Integer, nullable=False, index=True)  # milliseconds
+    timestamp = Column(BigInteger, nullable=False, index=True)  # milliseconds
     best_bid = Column(DECIMAL(18, 6), nullable=True)
     best_ask = Column(DECIMAL(18, 6), nullable=True)
     spread = Column(DECIMAL(18, 6), nullable=True)
@@ -697,7 +697,7 @@ class MarketAssetMetrics(Base):
     id = Column(Integer, primary_key=True, index=True)
     exchange = Column(String(20), nullable=False, default="hyperliquid", index=True)
     symbol = Column(String(20), nullable=False, index=True)
-    timestamp = Column(Integer, nullable=False, index=True)  # milliseconds
+    timestamp = Column(BigInteger, nullable=False, index=True)  # milliseconds
     open_interest = Column(DECIMAL(24, 8), nullable=True)
     funding_rate = Column(DECIMAL(18, 8), nullable=True)
     mark_price = Column(DECIMAL(18, 6), nullable=True)
