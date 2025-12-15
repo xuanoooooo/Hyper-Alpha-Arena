@@ -277,6 +277,7 @@ def place_ai_driven_hyperliquid_order(
     account_ids: Optional[Iterable[int]] = None,
     account_id: Optional[int] = None,
     bypass_auto_trading: bool = False,
+    trigger_context: Optional[Dict[str, Any]] = None,
 ) -> None:
     """Place Hyperliquid perpetual contract order based on AI decision.
 
@@ -289,6 +290,7 @@ def place_ai_driven_hyperliquid_order(
     Args:
         account_ids: Optional iterable of account IDs to process
         account_id: Optional single account ID to process
+        trigger_context: Optional context about what triggered this decision (signal or scheduled)
     """
 
     try:
@@ -491,7 +493,7 @@ def place_ai_driven_hyperliquid_order(
                 'positions': positions
             }
 
-            # Call AI for trading decision
+            # Call AI for trading decision with trigger context
             decisions = call_ai_for_decision(
                 db,
                 account,
@@ -500,6 +502,7 @@ def place_ai_driven_hyperliquid_order(
                 symbols=selected_symbols,
                 hyperliquid_state=hyperliquid_state,
                 symbol_metadata=prompt_symbol_metadata,
+                trigger_context=trigger_context,
             )
 
             if not decisions:

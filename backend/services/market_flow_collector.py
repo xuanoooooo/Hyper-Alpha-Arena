@@ -521,10 +521,10 @@ class MarketFlowCollector:
                     "orderbook": self.latest_orderbook.get(symbol, {}),
                 }
 
-                # Detect signals
+                # Detect signals (returns pool triggers now)
                 triggered = signal_detection_service.detect_signals(symbol, market_data)
                 if triggered:
-                    logger.info(f"Signals triggered for {symbol}: {[s['signal_name'] for s in triggered]}")
+                    logger.info(f"Pools triggered for {symbol}: {[p['pool_name'] for p in triggered]}")
 
         except Exception as e:
             logger.error(f"Error in signal detection: {e}", exc_info=True)

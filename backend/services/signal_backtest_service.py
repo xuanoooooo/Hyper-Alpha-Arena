@@ -782,6 +782,156 @@ class SignalBacktestService:
 
         return result
 
+    def backtest_pool(
+        self, db: Session, pool_id: int, symbol: str,
+        kline_min_ts: int = None, kline_max_ts: int = None
+    ) -> Dict[str, Any]:
+        """
+        Backtest a signal pool against historical data.
+        Combines triggers from multiple signals based on pool logic (AND/OR).
+
+        Args:
+            db: Database session
+            pool_id: Signal pool ID
+            symbol: Trading symbol (e.g., 'BTC')
+            kline_min_ts: Minimum K-line timestamp in milliseconds
+            kline_max_ts: Maximum K-line timestamp in milliseconds
+        """
+        # Clear bucket cache for fresh data
+        self._bucket_cache = {}
+
+        # Get pool definition
+        result = db.execute(
+            text("""
+                SELECT id, pool_name, signal_ids, symbols, enabled, logic
+                FROM signal_pools WHERE id = :id
+            """),
+            {"id": pool_id}
+        )
+        row = result.fetchone()
+        if not row:
+            return {"error": "Pool not found"}
+
+        pool_def = {
+            "id": row[0],
+            "pool_name": row[1],
+            "signal_ids": row[2] or [],
+            "symbols": row[3] or [],
+            "enabled": row[4],
+            "logic": row[5] or "OR"
+        }
+
+        signal_ids = pool_def["signal_ids"]
+        if not signal_ids:
+            return {"error": "Pool has no signals configured"}
+
+        logic = pool_def["logic"]
+
+        # Get triggers for each signal
+        signal_triggers = {}
+        signal_names = {}
+        time_window = "5m"  # Default, will be updated from first signal
+
+        for signal_id in signal_ids:
+            signal_result = self.backtest_signal(
+                db, signal_id, symbol, kline_min_ts, kline_max_ts
+            )
+            if "error" not in signal_result:
+                signal_triggers[signal_id] = {
+                    t["timestamp"]: t for t in signal_result.get("triggers", [])
+                }
+                signal_names[signal_id] = signal_result.get("signal_name", f"Signal {signal_id}")
+                time_window = signal_result.get("time_window", time_window)
+
+        if not signal_triggers:
+            return {"error": "No valid signals in pool"}
+
+        # Combine triggers based on logic
+        combined_triggers = self._combine_pool_triggers(
+            signal_triggers, signal_names, logic
+        )
+
+        return {
+            "pool_id": pool_id,
+            "pool_name": pool_def["pool_name"],
+            "symbol": symbol,
+            "time_window": time_window,
+            "logic": logic,
+            "signal_count": len(signal_ids),
+            "signal_names": signal_names,
+            "trigger_count": len(combined_triggers),
+            "triggers": combined_triggers,
+        }
+
+    def _combine_pool_triggers(
+        self, signal_triggers: Dict[int, Dict], signal_names: Dict[int, str], logic: str
+    ) -> List[Dict]:
+        """
+        Combine triggers from multiple signals based on pool logic.
+
+        Args:
+            signal_triggers: Dict mapping signal_id to {timestamp: trigger_data}
+            signal_names: Dict mapping signal_id to signal name
+            logic: 'AND' or 'OR'
+        """
+        if logic == "OR":
+            # OR: Any signal triggers = pool triggers
+            all_timestamps = set()
+            for triggers in signal_triggers.values():
+                all_timestamps.update(triggers.keys())
+
+            combined = []
+            for ts in sorted(all_timestamps):
+                triggered_signals = []
+                for signal_id, triggers in signal_triggers.items():
+                    if ts in triggers:
+                        triggered_signals.append({
+                            "signal_id": signal_id,
+                            "signal_name": signal_names.get(signal_id, f"Signal {signal_id}"),
+                            "value": triggers[ts].get("value"),
+                            "threshold": triggers[ts].get("threshold"),
+                        })
+                combined.append({
+                    "timestamp": ts,
+                    "triggered_signals": triggered_signals,
+                    "trigger_type": "any",
+                })
+            return combined
+
+        else:  # AND
+            # AND: All signals must trigger at the same timestamp
+            if not signal_triggers:
+                return []
+
+            # Find timestamps where ALL signals triggered
+            common_timestamps = None
+            for triggers in signal_triggers.values():
+                ts_set = set(triggers.keys())
+                if common_timestamps is None:
+                    common_timestamps = ts_set
+                else:
+                    common_timestamps &= ts_set
+
+            if not common_timestamps:
+                return []
+
+            combined = []
+            for ts in sorted(common_timestamps):
+                triggered_signals = []
+                for signal_id, triggers in signal_triggers.items():
+                    triggered_signals.append({
+                        "signal_id": signal_id,
+                        "signal_name": signal_names.get(signal_id, f"Signal {signal_id}"),
+                        "value": triggers[ts].get("value"),
+                        "threshold": triggers[ts].get("threshold"),
+                    })
+                combined.append({
+                    "timestamp": ts,
+                    "triggered_signals": triggered_signals,
+                    "trigger_type": "all",
+                })
+            return combined
+
     def _evaluate_condition(self, value: float, operator: str, threshold: float) -> bool:
         """Evaluate if a condition is met."""
         # Support both symbol and text forms of operators

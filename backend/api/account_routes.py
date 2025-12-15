@@ -44,7 +44,7 @@ def _normalize_bool(value, default=True) -> bool:
     return bool(value)
 
 
-def _serialize_strategy(account: Account, strategy) -> StrategyConfig:
+def _serialize_strategy(account: Account, strategy, db: Session = None) -> StrategyConfig:
     """Convert database strategy config to API schema."""
     last_trigger = strategy.last_trigger_at
     if last_trigger:
@@ -55,6 +55,17 @@ def _serialize_strategy(account: Account, strategy) -> StrategyConfig:
     else:
         last_iso = None
 
+    # Get signal pool name if bound
+    signal_pool_name = None
+    if strategy.signal_pool_id and db:
+        from sqlalchemy import text
+        result = db.execute(
+            text("SELECT pool_name FROM signal_pools WHERE id = :id"),
+            {"id": strategy.signal_pool_id}
+        ).fetchone()
+        if result:
+            signal_pool_name = result[0]
+
     return StrategyConfig(
         trigger_mode="unified",
         interval_seconds=strategy.trigger_interval or 150,
@@ -62,6 +73,8 @@ def _serialize_strategy(account: Account, strategy) -> StrategyConfig:
         enabled=(strategy.enabled == "true" and account.auto_trading_enabled == "true"),
         last_trigger_at=last_iso,
         price_threshold=strategy.price_threshold or 1.0,
+        signal_pool_id=strategy.signal_pool_id,
+        signal_pool_name=signal_pool_name,
     )
 
 
@@ -248,7 +261,7 @@ async def get_account_strategy(account_id: int, db: Session = Depends(get_db)):
         # Reload strategies after creation
         hyper_strategy_manager._load_strategies()
 
-    return _serialize_strategy(account, strategy)
+    return _serialize_strategy(account, strategy, db)
 
 
 @router.put("/{account_id}/strategy", response_model=StrategyConfig)
@@ -295,11 +308,12 @@ async def update_account_strategy(
         price_threshold=price_threshold,
         trigger_interval=trigger_interval,
         enabled=payload.enabled,
+        signal_pool_id=payload.signal_pool_id,
     )
 
     # Reload strategies after update
     hyper_strategy_manager._load_strategies()
-    return _serialize_strategy(account, strategy)
+    return _serialize_strategy(account, strategy, db)
 
 
 @router.get("/overview")
