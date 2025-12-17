@@ -856,6 +856,117 @@ class HyperliquidTradingClient:
             logger.error(f"Failed to get recent closed trades: {e}", exc_info=True)
             return []
 
+    def get_trading_stats(self, db: Session) -> Dict[str, Any]:
+        """
+        Get trading statistics including win rate, profit factor, etc.
+
+        Uses official Hyperliquid portfolio API for accurate all-time PNL
+        (includes fees and funding), combined with fills data for win/loss stats.
+
+        Args:
+            db: Database session (for environment validation)
+
+        Returns:
+            Dict with trading statistics
+
+        Raises:
+            EnvironmentMismatchError: If environment validation fails
+        """
+        self._validate_environment(db)
+
+        try:
+            # Get official portfolio data for accurate PNL (includes fees/funding)
+            portfolio_pnl = 0.0
+            portfolio_volume = 0.0
+            try:
+                portfolio_data = self.sdk_info.portfolio(self.wallet_address)
+                # Find allTime or perpAllTime data
+                for item in portfolio_data:
+                    if item[0] == 'allTime':
+                        pnl_history = item[1].get('pnlHistory', [])
+                        if pnl_history:
+                            portfolio_pnl = float(pnl_history[-1][1])
+                        portfolio_volume = float(item[1].get('vlm', 0))
+                        break
+            except Exception as e:
+                logger.warning(f"Failed to get portfolio data: {e}")
+
+            # Get fills for win/loss statistics
+            fills = self._get_user_fills(db)
+            closed_fills = []
+            for fill in fills:
+                closed_pnl = fill.get('closedPnl')
+                if closed_pnl and closed_pnl != '0.0':
+                    closed_fills.append({
+                        'pnl': float(closed_pnl),
+                        'time': fill.get('time', 0),
+                        'symbol': fill.get('coin'),
+                    })
+
+            if not closed_fills:
+                return {
+                    'total_trades': 0,
+                    'wins': 0,
+                    'losses': 0,
+                    'win_rate': 0.0,
+                    'total_pnl': round(portfolio_pnl, 2),
+                    'volume': round(portfolio_volume, 2),
+                    'avg_win': 0.0,
+                    'avg_loss': 0.0,
+                    'profit_factor': 0.0,
+                    'gross_profit': 0.0,
+                    'gross_loss': 0.0,
+                }
+
+            # Calculate win/loss statistics from fills
+            wins = [t for t in closed_fills if t['pnl'] > 0]
+            losses = [t for t in closed_fills if t['pnl'] < 0]
+
+            total_trades = len(closed_fills)
+            win_count = len(wins)
+            loss_count = len(losses)
+
+            win_rate = (win_count / total_trades * 100) if total_trades > 0 else 0.0
+            gross_profit = sum(t['pnl'] for t in wins) if wins else 0.0
+            gross_loss = abs(sum(t['pnl'] for t in losses)) if losses else 0.0
+            avg_win = gross_profit / win_count if win_count > 0 else 0.0
+            avg_loss = -gross_loss / loss_count if loss_count > 0 else 0.0
+            profit_factor = gross_profit / gross_loss if gross_loss > 0 else 0.0
+
+            stats = {
+                'total_trades': total_trades,
+                'wins': win_count,
+                'losses': loss_count,
+                'win_rate': round(win_rate, 1),
+                'total_pnl': round(portfolio_pnl, 2),  # Official PNL (includes fees)
+                'volume': round(portfolio_volume, 2),
+                'avg_win': round(avg_win, 2),
+                'avg_loss': round(avg_loss, 2),
+                'profit_factor': round(profit_factor, 2),
+                'gross_profit': round(gross_profit, 2),
+                'gross_loss': round(gross_loss, 2),
+            }
+
+            logger.info(f"Trading stats: {win_count}W/{loss_count}L, PNL=${portfolio_pnl:.2f}")
+            return stats
+
+        except Exception as e:
+            logger.error(f"Failed to get trading stats: {e}", exc_info=True)
+            return {
+                'total_trades': 0,
+                'wins': 0,
+                'losses': 0,
+                'win_rate': 0.0,
+                'total_pnl': 0.0,
+                'volume': 0.0,
+                'avg_win': 0.0,
+                'avg_loss': 0.0,
+                'profit_factor': 0.0,
+                'gross_profit': 0.0,
+                'gross_loss': 0.0,
+                'error': str(e),
+            }
+
     def get_open_orders(self, db: Session, symbol: Optional[str] = None) -> List[Dict[str, Any]]:
         """
         Get current open orders (unfilled/partially filled orders)

@@ -675,6 +675,65 @@ async def get_account_rate_limit(
         )
 
 
+@router.get("/accounts/{account_id}/trading-stats")
+async def get_account_trading_stats(
+    account_id: int,
+    environment: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """
+    Get trading statistics for Hyperliquid account
+
+    Returns win rate, profit factor, and other trading metrics based on
+    historical closed trades.
+
+    Args:
+        account_id: Account ID
+        environment: Optional environment override ("testnet" or "mainnet")
+                    If not specified, uses global trading mode
+        db: Database session
+
+    Returns:
+        Trading statistics including win rate, total trades, PnL metrics
+
+    Raises:
+        HTTPException: If account not found or Hyperliquid not enabled
+    """
+    try:
+        # Determine environment to use
+        if environment is None:
+            from services.hyperliquid_environment import get_global_trading_mode
+            environment = get_global_trading_mode(db)
+
+        # Get Hyperliquid client for this account with environment override
+        client = get_hyperliquid_client(db, account_id, override_environment=environment)
+
+        if not client:
+            raise HTTPException(
+                status_code=400,
+                detail="Hyperliquid trading is not enabled for this account"
+            )
+
+        # Query trading stats
+        stats = client.get_trading_stats(db)
+
+        return {
+            'success': True,
+            'accountId': account_id,
+            'environment': environment,
+            'stats': stats
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get trading stats for account {account_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to query trading stats: {str(e)}"
+        )
+
+
 @router.get("/health")
 async def health_check():
     """

@@ -337,6 +337,41 @@ export async function getWalletRateLimit(
 }
 
 /**
+ * Trading Statistics
+ */
+export interface TradingStats {
+  total_trades: number;
+  wins: number;
+  losses: number;
+  win_rate: number;
+  total_pnl: number;  // Official PNL from Hyperliquid (includes fees/funding)
+  volume: number;     // All-time trading volume
+  avg_win: number;
+  avg_loss: number;
+  profit_factor: number;
+  gross_profit: number;
+  gross_loss: number;
+  error?: string;
+}
+
+export async function getTradingStats(
+  accountId: number,
+  environment?: HyperliquidEnvironment
+): Promise<{
+  success: boolean;
+  accountId: number;
+  environment: string;
+  stats: TradingStats;
+}> {
+  const url = environment
+    ? `${HYPERLIQUID_API_BASE}/accounts/${accountId}/trading-stats?environment=${environment}`
+    : `${HYPERLIQUID_API_BASE}/accounts/${accountId}/trading-stats`;
+
+  const response = await apiRequest(url);
+  return response.json();
+}
+
+/**
  * Wallet Management (Multi-Wallet Architecture)
  */
 

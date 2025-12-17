@@ -71,6 +71,20 @@ export default function HyperliquidView({ wsRef, refreshKey = 0 }: HyperliquidVi
     account_name: acc.account_name,
   })) || []
 
+  // Extract all positions with account_id for the summary component
+  const allPositions = positionsData?.accounts?.flatMap((acc: any) =>
+    (acc.positions || []).map((pos: any) => ({
+      symbol: pos.symbol,
+      side: pos.side,
+      size: pos.quantity,
+      entry_price: pos.avg_cost,
+      mark_price: pos.current_price,
+      unrealized_pnl: pos.unrealized_pnl,
+      leverage: pos.leverage || 1,
+      account_id: acc.account_id,
+    }))
+  ) || []
+
   const firstAccountId = accounts[0]?.account_id
 
   if (loading && !positionsData) {
@@ -105,6 +119,7 @@ export default function HyperliquidView({ wsRef, refreshKey = 0 }: HyperliquidVi
             accounts={accounts}
             refreshKey={refreshKey + chartRefreshKey}
             selectedAccount={selectedAccount}
+            positions={allPositions}
           />
         </div>
       </div>
