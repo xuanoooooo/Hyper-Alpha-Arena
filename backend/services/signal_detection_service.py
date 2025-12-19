@@ -158,32 +158,50 @@ class SignalDetectionService:
                 result = db.execute(
                     text("SELECT id, pool_name, signal_ids, symbols, enabled, logic FROM signal_pools WHERE enabled = true")
                 )
-                self._signal_pools_cache = [
-                    {
+                self._signal_pools_cache = []
+                for row in result.fetchall():
+                    # Parse signal_ids and symbols - ORM defines as Text
+                    signal_ids = row[2]
+                    if isinstance(signal_ids, str):
+                        try:
+                            signal_ids = json.loads(signal_ids)
+                        except json.JSONDecodeError:
+                            signal_ids = []
+                    symbols = row[3]
+                    if isinstance(symbols, str):
+                        try:
+                            symbols = json.loads(symbols)
+                        except json.JSONDecodeError:
+                            symbols = []
+                    self._signal_pools_cache.append({
                         "id": row[0],
                         "pool_name": row[1],
-                        "signal_ids": row[2] or [],
-                        "symbols": row[3] or [],
+                        "signal_ids": signal_ids or [],
+                        "symbols": symbols or [],
                         "enabled": row[4],
                         "logic": row[5] or "OR"
-                    }
-                    for row in result.fetchall()
-                ]
+                    })
 
                 # Load all enabled signals
                 result = db.execute(
                     text("SELECT id, signal_name, description, trigger_condition, enabled FROM signal_definitions WHERE enabled = true")
                 )
-                self._signals_cache = {
-                    row[0]: {
+                self._signals_cache = {}
+                for row in result.fetchall():
+                    # Parse trigger_condition - ORM defines as Text, so it may be string
+                    trigger_cond = row[3]
+                    if isinstance(trigger_cond, str):
+                        try:
+                            trigger_cond = json.loads(trigger_cond)
+                        except json.JSONDecodeError:
+                            trigger_cond = {}
+                    self._signals_cache[row[0]] = {
                         "id": row[0],
                         "signal_name": row[1],
                         "description": row[2],
-                        "trigger_condition": row[3],
+                        "trigger_condition": trigger_cond,
                         "enabled": row[4]
                     }
-                    for row in result.fetchall()
-                }
 
                 self._cache_time = now
                 logger.debug(f"Signal cache refreshed: {len(self._signal_pools_cache)} pools, {len(self._signals_cache)} signals")

@@ -910,11 +910,25 @@ class SignalBacktestService:
             logger.warning(f"[Backtest] Pool {pool_id} NOT FOUND in database")
             return {"error": "Pool not found"}
 
+        # Parse signal_ids and symbols - ORM defines as Text
+        raw_signal_ids = row[2]
+        if isinstance(raw_signal_ids, str):
+            try:
+                raw_signal_ids = json.loads(raw_signal_ids)
+            except json.JSONDecodeError:
+                raw_signal_ids = []
+        raw_symbols = row[3]
+        if isinstance(raw_symbols, str):
+            try:
+                raw_symbols = json.loads(raw_symbols)
+            except json.JSONDecodeError:
+                raw_symbols = []
+
         pool_def = {
             "id": row[0],
             "pool_name": row[1],
-            "signal_ids": row[2] or [],
-            "symbols": row[3] or [],
+            "signal_ids": raw_signal_ids or [],
+            "symbols": raw_symbols or [],
             "enabled": row[4],
             "logic": row[5] or "OR"
         }
