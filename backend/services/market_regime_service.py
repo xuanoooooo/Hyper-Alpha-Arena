@@ -109,67 +109,74 @@ def classify_regime(
     """
     Classify market regime based on indicators.
     Returns (regime_type, reason)
-    Priority order: Stop Hunt > Absorption > Breakout > Continuation >
-                    Exhaustion > Trap > Noise
 
-    Indicator definitions:
-    - cvd_ratio: CVD / Total Notional (range roughly -0.5 to 0.5)
-    - taker_log_ratio: ln(buy/sell), symmetric around 0
-    - oi_delta: OI change percentage
-    - price_atr: (close - open) / ATR
-    - rsi: RSI14
-    - price_range_atr: (high - low) / ATR
+    Priority order:
+    1. Stop Hunt - spike and reversal
+    2. Breakout - strong CVD + price move + (Taker extreme OR OI increase)
+    3. Exhaustion - strong CVD + OI decrease + RSI extreme
+    4. Trap - strong CVD + OI decrease significantly
+    5. Absorption - strong CVD but price doesn't move
+    6. Continuation - CVD aligned with price movement
+    7. Noise - no clear pattern
+
+    Note: Taker thresholds should be set to capture ~25% as extreme.
+    Default: taker_high=33, taker_low=0.03 (log threshold ±3.5)
     """
-    # Convert config thresholds (designed for z-score) to ratio-based thresholds
-    # Config uses z-score thresholds, we need to adapt for ratio-based values
-    # cvd_z=1.5 roughly corresponds to cvd_ratio=0.15 (strong flow)
-    cvd_threshold = config.breakout_cvd_z * 0.1  # Scale down for ratio
-    oi_threshold = config.breakout_oi_z  # OI delta is already percentage
+    # Thresholds from config
+    cvd_strong = config.breakout_cvd_z * 0.1  # ~0.15 for strong flow
+    cvd_weak = cvd_strong / 3  # ~0.05 for weak flow
+    price_breakout = config.breakout_price_atr + 0.2  # ~0.5 for breakout
+    price_move = config.absorption_price_atr  # ~0.3 for movement
+    oi_increase = config.breakout_oi_z  # OI increase threshold
+    oi_decrease = config.trap_oi_z  # OI decrease threshold
 
-    # taker_log_ratio thresholds: log(1.8) ≈ 0.59, log(0.55) ≈ -0.60
-    taker_high_log = math.log(config.breakout_taker_high) if config.breakout_taker_high > 0 else 0.59
-    taker_low_log = math.log(config.breakout_taker_low) if config.breakout_taker_low > 0 else -0.60
+    # Taker extreme check (using log thresholds)
+    taker_high_log = math.log(config.breakout_taker_high) if config.breakout_taker_high > 0 else 3.5
+    taker_low_log = math.log(config.breakout_taker_low) if config.breakout_taker_low > 0 else -3.5
+    is_taker_extreme = taker_log_ratio > taker_high_log or taker_log_ratio < taker_low_log
+
+    # Direction alignment check
+    cvd_price_aligned = (cvd_ratio > 0 and price_atr > 0) or (cvd_ratio < 0 and price_atr < 0)
 
     # 1. Stop Hunt: large range but close near open (spike and reversal)
     if (price_range_atr > config.stop_hunt_range_atr and
         abs(price_atr) < config.stop_hunt_close_atr):
         return REGIME_STOP_HUNT, "Price spiked but closed near open"
 
-    # 2. Absorption: strong flow but price doesn't move
-    taker_extreme = taker_log_ratio > taker_high_log or taker_log_ratio < taker_low_log
-    if (abs(cvd_ratio) > cvd_threshold and taker_extreme and
-        abs(price_atr) < config.absorption_price_atr):
-        return REGIME_ABSORPTION, "Strong flow absorbed without price movement"
+    # 2. Breakout: strong CVD + price move + (Taker extreme OR OI increase)
+    # Additional check: body must be significant portion of range (not spike-and-reverse)
+    is_cvd_strong = abs(cvd_ratio) > cvd_strong
+    is_price_breakout = abs(price_atr) > price_breakout
+    is_oi_increase = oi_delta > oi_increase
+    # Body ratio: if price spiked but reversed (long shadow), it's not a true breakout
+    body_ratio = abs(price_atr) / price_range_atr if price_range_atr > 0 else 1.0
+    is_solid_move = body_ratio > 0.4  # Body must be >40% of range
 
-    # 3. Breakout: aligned signals with price movement
-    cvd_bullish = cvd_ratio > cvd_threshold
-    cvd_bearish = cvd_ratio < -cvd_threshold
-    oi_increasing = oi_delta > oi_threshold
+    if is_cvd_strong and is_price_breakout and cvd_price_aligned and is_solid_move and (is_taker_extreme or is_oi_increase):
+        direction = "Bullish" if cvd_ratio > 0 else "Bearish"
+        return REGIME_BREAKOUT, f"{direction} breakout with aligned signals"
 
-    if cvd_bullish and taker_log_ratio > taker_high_log and \
-       oi_increasing and price_atr > config.breakout_price_atr:
-        return REGIME_BREAKOUT, "Bullish breakout with aligned signals"
-    if cvd_bearish and taker_log_ratio < taker_low_log and \
-       oi_increasing and price_atr < -config.breakout_price_atr:
-        return REGIME_BREAKOUT, "Bearish breakout with aligned signals"
-
-    # 4. Continuation: moderate flow in trend direction
-    cont_cvd_min = cvd_threshold * 0.5
-    cont_cvd_max = cvd_threshold
-    if (cont_cvd_min < abs(cvd_ratio) < cont_cvd_max and oi_delta >= 0 and
-        abs(price_atr) > config.absorption_price_atr):
-        return REGIME_CONTINUATION, "Trend continuation with moderate flow"
-
-    # 5. Exhaustion: strong flow but OI decreasing at RSI extremes
+    # 3. Exhaustion: strong CVD + OI decrease + RSI extreme
+    is_oi_decrease = oi_delta < oi_decrease
     rsi_extreme = rsi > config.exhaustion_rsi_high or rsi < config.exhaustion_rsi_low
-    if (abs(cvd_ratio) > cvd_threshold * 0.7 and taker_extreme and
-        oi_delta < 0 and rsi_extreme):
+
+    if is_cvd_strong and is_oi_decrease and rsi_extreme:
         return REGIME_EXHAUSTION, "Trend exhaustion at RSI extreme"
 
-    # 6. Trap: strong flow but OI decreasing (closing positions)
-    trap_oi_threshold = config.trap_oi_z  # Already percentage
-    if abs(cvd_ratio) > cvd_threshold * 0.7 and oi_delta < trap_oi_threshold:
+    # 4. Trap: strong CVD + OI decrease significantly
+    if is_cvd_strong and is_oi_decrease:
         return REGIME_TRAP, "Strong flow but positions closing (trap)"
+
+    # 5. Absorption: strong CVD but price doesn't move
+    is_price_move = abs(price_atr) > price_move
+    if is_cvd_strong and not is_price_move:
+        return REGIME_ABSORPTION, "Strong flow absorbed without price movement"
+
+    # 6. Continuation: CVD aligned with price movement
+    is_cvd_weak = abs(cvd_ratio) > cvd_weak
+    if is_cvd_weak and is_price_move and cvd_price_aligned:
+        direction = "Bullish" if cvd_ratio > 0 else "Bearish"
+        return REGIME_CONTINUATION, f"{direction} trend continuation"
 
     # 7. Noise: no clear pattern
     return REGIME_NOISE, "No clear market regime detected"
@@ -196,7 +203,9 @@ def fetch_kline_data(
     )
 
     if current_time_ms:
-        query = query.filter(CryptoKline.timestamp <= current_time_ms)
+        # Convert ms to seconds for comparison with CryptoKline.timestamp (stored in seconds)
+        current_time_s = current_time_ms // 1000
+        query = query.filter(CryptoKline.timestamp <= current_time_s)
 
     klines = query.order_by(CryptoKline.timestamp.desc()).limit(limit).all()
 
@@ -370,9 +379,9 @@ def get_market_regime(
         "confidence": round(confidence, 3),
         "reason": reason,
         "indicators": {
-            "cvd_z": round(cvd_ratio, 4),  # Keep field name for API compatibility
-            "oi_z": round(oi_delta, 3),    # Keep field name for API compatibility
-            "taker_ratio": round(math.exp(taker_log_ratio), 3),  # Convert back for display
+            "cvd_ratio": round(cvd_ratio, 4),  # CVD / Total Notional
+            "oi_delta": round(oi_delta, 3),    # OI change percentage
+            "taker_ratio": round(math.exp(taker_log_ratio), 3),  # buy/sell ratio
             "price_atr": round(price_atr, 3),
             "rsi": round(rsi, 1)
         },

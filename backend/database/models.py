@@ -797,6 +797,7 @@ class SignalTriggerLog(Base):
     symbol = Column(String(20), nullable=False)
     trigger_value = Column(Text, nullable=True)  # JSONB stored as text
     triggered_at = Column(TIMESTAMP, server_default=func.current_timestamp())
+    market_regime = Column(Text, nullable=True)  # JSON: {"regime", "direction", "confidence", "reason"}
 
 
 class TraderTriggerConfig(Base):

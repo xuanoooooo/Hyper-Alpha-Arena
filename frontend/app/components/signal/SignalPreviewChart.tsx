@@ -30,6 +30,13 @@ interface TriggerData {
   volume?: number
   ratio_threshold?: number
   volume_threshold?: number
+  // Market Regime classification
+  market_regime?: {
+    regime: string
+    direction: string
+    confidence: number
+    reason?: string
+  }
 }
 
 interface SignalPreviewChartProps {
@@ -62,6 +69,34 @@ function formatValue(metric: string, value: number): string {
     return `${value.toFixed(2)}%`
   }
   return value.toFixed(4)
+}
+
+// Get regime display color
+function getRegimeColor(regime: string): string {
+  const colors: Record<string, string> = {
+    stop_hunt: 'text-red-400',
+    absorption: 'text-purple-400',
+    breakout: 'text-green-400',
+    continuation: 'text-blue-400',
+    exhaustion: 'text-orange-400',
+    trap: 'text-yellow-400',
+    noise: 'text-gray-400',
+  }
+  return colors[regime] || 'text-gray-400'
+}
+
+// Format regime name for display
+function formatRegimeName(regime: string): string {
+  const names: Record<string, string> = {
+    stop_hunt: 'Stop Hunt',
+    absorption: 'Absorption',
+    breakout: 'Breakout',
+    continuation: 'Continuation',
+    exhaustion: 'Exhaustion',
+    trap: 'Trap',
+    noise: 'Noise',
+  }
+  return names[regime] || regime
 }
 
 export default function SignalPreviewChart({ klines, triggers, timeWindow, signalMetric }: SignalPreviewChartProps) {
@@ -327,6 +362,8 @@ export default function SignalPreviewChart({ klines, triggers, timeWindow, signa
 
     const content = tooltip.content
     const triggers = Array.isArray(content) ? content : [content]
+    // Get regime from first trigger (all triggers in same bucket share same regime)
+    const regime = triggers[0]?.market_regime
 
     return (
       <div className="space-y-2">
@@ -334,6 +371,20 @@ export default function SignalPreviewChart({ klines, triggers, timeWindow, signa
           Trigger Values {triggers.length > 1 && `(${triggers.length})`}
         </div>
         {triggers.map((t, idx) => renderSingleTrigger(t, idx))}
+        {regime && (
+          <div className="text-xs border-t border-gray-600 pt-1 mt-1">
+            <span className="text-gray-400">Regime:</span>{' '}
+            <span className={`font-medium ${getRegimeColor(regime.regime)}`}>
+              {formatRegimeName(regime.regime)}
+            </span>
+            <span className="text-gray-500 ml-1">
+              ({regime.direction === 'long' ? '↑' : regime.direction === 'short' ? '↓' : '−'})
+            </span>
+            <span className="text-gray-500 ml-1">
+              {(regime.confidence * 100).toFixed(0)}%
+            </span>
+          </div>
+        )}
       </div>
     )
   }

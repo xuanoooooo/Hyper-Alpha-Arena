@@ -58,6 +58,13 @@ interface SignalPool {
   created_at: string
 }
 
+interface MarketRegimeData {
+  regime: string
+  direction: string
+  confidence: number
+  details?: Record<string, unknown>
+}
+
 interface SignalTriggerLog {
   id: number
   signal_id: number | null
@@ -65,6 +72,7 @@ interface SignalTriggerLog {
   symbol: string
   trigger_value: Record<string, unknown> | null
   triggered_at: string
+  market_regime: MarketRegimeData | null
 }
 
 // API functions
@@ -160,6 +168,47 @@ async function fetchPoolBacktest(poolId: number, symbol: string): Promise<any> {
   const res = await fetch(`${API_BASE}/pool-backtest/${poolId}?${params}`)
   if (!res.ok) throw new Error('Failed to fetch pool backtest')
   return res.json()
+}
+
+// Market Regime batch query
+interface MarketRegimeResult {
+  symbol: string
+  regime: string
+  direction: string
+  confidence: number
+  reason: string
+}
+
+async function fetchBatchMarketRegime(
+  symbols: string[],
+  timeframe: string,
+  timestamps: number[]
+): Promise<Map<number, MarketRegimeResult>> {
+  const results = new Map<number, MarketRegimeResult>()
+  // Query regime for each unique timestamp
+  const uniqueTimestamps = [...new Set(timestamps)]
+  for (const ts of uniqueTimestamps) {
+    try {
+      const res = await fetch('/api/market-regime/batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          symbols,
+          timeframe,
+          timestamp_ms: ts,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json()
+        if (data.results && data.results.length > 0) {
+          results.set(ts, data.results[0])
+        }
+      }
+    } catch (e) {
+      console.error(`Failed to fetch regime for timestamp ${ts}:`, e)
+    }
+  }
+  return results
 }
 
 interface MetricAnalysis {
@@ -291,6 +340,9 @@ export default function SignalManager() {
   // Pool preview state
   const [previewPool, setPreviewPool] = useState<SignalPool | null>(null)
 
+  // Market Regime state
+  const [regimeLoading, setRegimeLoading] = useState(false)
+
   const loadData = async () => {
     try {
       setLoading(true)
@@ -357,6 +409,29 @@ export default function SignalManager() {
       }
     } catch {
       // Silent fail
+    }
+  }
+
+  // Check Market Regime for all triggers
+  const checkMarketRegime = async () => {
+    if (!previewData?.triggers?.length || !previewData?.symbol) return
+    setRegimeLoading(true)
+    try {
+      // Get max timeframe from signal/pool config
+      const timeframe = previewData.time_window || '5m'
+      const timestamps = previewData.triggers.map((t: any) => t.timestamp)
+      const regimeMap = await fetchBatchMarketRegime([previewData.symbol], timeframe, timestamps)
+      // Update triggers with regime data
+      const updatedTriggers = previewData.triggers.map((t: any) => ({
+        ...t,
+        market_regime: regimeMap.get(t.timestamp) || null,
+      }))
+      setPreviewData({ ...previewData, triggers: updatedTriggers })
+      toast.success(`Checked regime for ${regimeMap.size} trigger points`)
+    } catch (e) {
+      toast.error('Failed to check market regime')
+    } finally {
+      setRegimeLoading(false)
     }
   }
 
@@ -1099,6 +1174,27 @@ export default function SignalManager() {
                               {formatTriggerDetails()}
                             </div>
                           )}
+                          {log.market_regime && (
+                            <div className="text-xs mt-1 flex items-center gap-2">
+                              <span className={`px-1.5 py-0.5 rounded ${
+                                log.market_regime.regime === 'breakout' ? 'bg-green-500/20 text-green-400' :
+                                log.market_regime.regime === 'continuation' ? 'bg-blue-500/20 text-blue-400' :
+                                log.market_regime.regime === 'absorption' ? 'bg-yellow-500/20 text-yellow-400' :
+                                log.market_regime.regime === 'stop_hunt' ? 'bg-red-500/20 text-red-400' :
+                                log.market_regime.regime === 'trap' ? 'bg-orange-500/20 text-orange-400' :
+                                log.market_regime.regime === 'exhaustion' ? 'bg-purple-500/20 text-purple-400' :
+                                'bg-gray-500/20 text-gray-400'
+                              }`}>
+                                {log.market_regime.regime.toUpperCase()}
+                              </span>
+                              <span className={log.market_regime.direction === 'bullish' ? 'text-green-400' : 'text-red-400'}>
+                                {log.market_regime.direction}
+                              </span>
+                              <span className="text-muted-foreground">
+                                conf: {(log.market_regime.confidence * 100).toFixed(0)}%
+                              </span>
+                            </div>
+                          )}
                         </div>
                       )
                     })}
@@ -1499,7 +1595,20 @@ export default function SignalManager() {
                 </div>
                 <div className="bg-muted p-3 rounded">
                   <div className="text-muted-foreground">Triggers</div>
-                  <div className="font-medium text-yellow-500">{previewData.trigger_count}</div>
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-yellow-500">{previewData.trigger_count}</span>
+                    {previewData.trigger_count > 0 && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-6 text-xs px-2"
+                        disabled={regimeLoading}
+                        onClick={checkMarketRegime}
+                      >
+                        {regimeLoading ? 'Checking...' : 'Check Regime'}
+                      </Button>
+                    )}
+                  </div>
                 </div>
               </div>
 

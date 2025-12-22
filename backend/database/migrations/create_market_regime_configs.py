@@ -2,6 +2,9 @@
 """
 Migration: Create Market Regime Configs Table
 - market_regime_configs: Configuration for Market Regime classification thresholds
+
+Note: Config field names use '_z' suffix for historical reasons,
+but actual values are ratio-based thresholds, not z-scores.
 """
 
 import sys
@@ -10,6 +13,13 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(
 
 from sqlalchemy import create_engine, text
 from database.connection import DATABASE_URL
+
+# Default values (updated 2024-12: redesigned classification logic)
+DEFAULT_BREAKOUT_OI_Z = 0.1       # OI increase threshold for breakout
+DEFAULT_BREAKOUT_PRICE_ATR = 0.3  # Price movement threshold
+DEFAULT_TRAP_OI_Z = -0.5          # OI decrease threshold for trap
+DEFAULT_TAKER_HIGH = 33.0         # Taker ratio high threshold (~25% extreme)
+DEFAULT_TAKER_LOW = 0.03          # Taker ratio low threshold (~25% extreme)
 
 
 def migrate():
@@ -28,8 +38,35 @@ def migrate():
 
         if table_exists:
             print("market_regime_configs table already exists, skipping creation")
+            # Update to new defaults (2024-12 redesign)
+            # Update breakout_oi_z: 0.3 -> 0.1 (for OI increase detection)
+            result = conn.execute(text("""
+                UPDATE market_regime_configs
+                SET breakout_oi_z = :new_oi
+                WHERE is_default = true AND breakout_oi_z = 0.3
+            """), {"new_oi": DEFAULT_BREAKOUT_OI_Z})
+            if result.rowcount > 0:
+                print(f"Updated breakout_oi_z: 0.3 -> {DEFAULT_BREAKOUT_OI_Z}")
+
+            # Update trap_oi_z: -1.0 -> -0.5 (for OI decrease detection)
+            result = conn.execute(text("""
+                UPDATE market_regime_configs
+                SET trap_oi_z = :new_trap
+                WHERE is_default = true AND trap_oi_z = -1.0
+            """), {"new_trap": DEFAULT_TRAP_OI_Z})
+            if result.rowcount > 0:
+                print(f"Updated trap_oi_z: -1.0 -> {DEFAULT_TRAP_OI_Z}")
+
+            # Update taker thresholds: 1.8/0.55 -> 33/0.03 (for ~25% extreme)
+            result = conn.execute(text("""
+                UPDATE market_regime_configs
+                SET breakout_taker_high = :new_high, breakout_taker_low = :new_low
+                WHERE is_default = true AND breakout_taker_high = 1.8 AND breakout_taker_low = 0.55
+            """), {"new_high": DEFAULT_TAKER_HIGH, "new_low": DEFAULT_TAKER_LOW})
+            if result.rowcount > 0:
+                print(f"Updated taker thresholds: 1.8/0.55 -> {DEFAULT_TAKER_HIGH}/{DEFAULT_TAKER_LOW}")
         else:
-            # Create table
+            # Create table with new default values
             conn.execute(text("""
                 CREATE TABLE market_regime_configs (
                     id SERIAL PRIMARY KEY,
@@ -37,8 +74,8 @@ def migrate():
                     is_default BOOLEAN DEFAULT false,
                     rolling_window INTEGER DEFAULT 48,
                     breakout_cvd_z FLOAT DEFAULT 1.5,
-                    breakout_oi_z FLOAT DEFAULT 1.0,
-                    breakout_price_atr FLOAT DEFAULT 0.5,
+                    breakout_oi_z FLOAT DEFAULT 0.3,
+                    breakout_price_atr FLOAT DEFAULT 0.3,
                     breakout_taker_high FLOAT DEFAULT 1.8,
                     breakout_taker_low FLOAT DEFAULT 0.55,
                     absorption_cvd_z FLOAT DEFAULT 1.5,
@@ -75,7 +112,7 @@ def migrate():
                     stop_hunt_range_atr, stop_hunt_close_atr, noise_cvd_z
                 ) VALUES (
                     'Default', true, 48,
-                    1.5, 1.0, 0.5, 1.8, 0.55,
+                    1.5, 0.3, 0.3, 1.8, 0.55,
                     1.5, 0.3,
                     1.0, -1.0,
                     1.0, 70.0, 30.0,

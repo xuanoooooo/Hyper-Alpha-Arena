@@ -27,8 +27,8 @@ def get_db():
 
 # Pydantic models
 class RegimeIndicators(BaseModel):
-    cvd_z: float
-    oi_z: float
+    cvd_ratio: float  # CVD / Total Notional
+    oi_delta: float   # OI change percentage
     taker_ratio: float
     price_atr: float
     rsi: float

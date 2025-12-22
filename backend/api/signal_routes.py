@@ -428,7 +428,7 @@ def get_trigger_logs(
 
     where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
     query = f"""
-        SELECT id, signal_id, pool_id, symbol, trigger_value, triggered_at
+        SELECT id, signal_id, pool_id, symbol, trigger_value, triggered_at, market_regime
         FROM signal_trigger_logs {where_clause}
         ORDER BY triggered_at DESC LIMIT :limit
     """
@@ -443,9 +443,17 @@ def get_trigger_logs(
                 trigger_val = json.loads(trigger_val)
             except json.JSONDecodeError:
                 trigger_val = None
+        # Parse market_regime - also stored as Text/JSON
+        market_regime_val = row[6]
+        if isinstance(market_regime_val, str):
+            try:
+                market_regime_val = json.loads(market_regime_val)
+            except json.JSONDecodeError:
+                market_regime_val = None
         logs.append(SignalTriggerLogResponse(
             id=row[0], signal_id=row[1], pool_id=row[2],
-            symbol=row[3], trigger_value=trigger_val, triggered_at=row[5]
+            symbol=row[3], trigger_value=trigger_val, triggered_at=row[5],
+            market_regime=market_regime_val
         ))
 
     # Get total count

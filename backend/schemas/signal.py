@@ -94,6 +94,7 @@ class SignalTriggerLogResponse(BaseModel):
     symbol: str
     trigger_value: Optional[Dict[str, Any]]
     triggered_at: datetime
+    market_regime: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True

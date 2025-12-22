@@ -15,6 +15,27 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 
+def _get_market_regime_for_trigger(symbol: str, timeframe: str = "5m") -> Optional[str]:
+    """Get market regime classification for a trigger and return as JSON string."""
+    try:
+        from database.connection import SessionLocal
+        from services.market_regime_service import get_market_regime
+        db = SessionLocal()
+        try:
+            result = get_market_regime(db, symbol, timeframe)
+            return json.dumps({
+                "regime": result.get("regime"),
+                "direction": result.get("direction"),
+                "confidence": result.get("confidence"),
+                "reason": result.get("reason"),
+            })
+        finally:
+            db.close()
+    except Exception as e:
+        logger.warning(f"Failed to get market regime for {symbol}: {e}")
+        return None
+
+
 @dataclass
 class SignalState:
     """Track the active state of a signal for edge detection"""
@@ -573,16 +594,20 @@ class SignalDetectionService:
                     ],
                 })
 
+                # Get market regime for this trigger
+                market_regime = _get_market_regime_for_trigger(trigger_result["symbol"])
+
                 db.execute(
                     text("""
                         INSERT INTO signal_trigger_logs
-                        (pool_id, symbol, trigger_value, triggered_at)
-                        VALUES (:pool_id, :symbol, CAST(:trigger_value AS jsonb), NOW())
+                        (pool_id, symbol, trigger_value, triggered_at, market_regime)
+                        VALUES (:pool_id, :symbol, CAST(:trigger_value AS jsonb), NOW(), :market_regime)
                     """),
                     {
                         "pool_id": trigger_result["pool_id"],
                         "symbol": trigger_result["symbol"],
                         "trigger_value": trigger_value_json,
+                        "market_regime": market_regime,
                     }
                 )
                 db.commit()
@@ -758,16 +783,20 @@ class SignalDetectionService:
                     "volume_threshold": trigger_result["volume_threshold"],
                 })
 
+                # Get market regime for this trigger
+                market_regime = _get_market_regime_for_trigger(trigger_result["symbol"])
+
                 db.execute(
                     text("""
                         INSERT INTO signal_trigger_logs
-                        (signal_id, symbol, trigger_value, triggered_at)
-                        VALUES (:signal_id, :symbol, CAST(:trigger_value AS jsonb), NOW())
+                        (signal_id, symbol, trigger_value, triggered_at, market_regime)
+                        VALUES (:signal_id, :symbol, CAST(:trigger_value AS jsonb), NOW(), :market_regime)
                     """),
                     {
                         "signal_id": trigger_result["signal_id"],
                         "symbol": trigger_result["symbol"],
                         "trigger_value": trigger_value_json,
+                        "market_regime": market_regime,
                     }
                 )
                 db.commit()
@@ -826,16 +855,20 @@ class SignalDetectionService:
                     "metric": trigger_result["metric"],
                 })
 
+                # Get market regime for this trigger
+                market_regime = _get_market_regime_for_trigger(trigger_result["symbol"])
+
                 db.execute(
                     text("""
                         INSERT INTO signal_trigger_logs
-                        (signal_id, symbol, trigger_value, triggered_at)
-                        VALUES (:signal_id, :symbol, CAST(:trigger_value AS jsonb), NOW())
+                        (signal_id, symbol, trigger_value, triggered_at, market_regime)
+                        VALUES (:signal_id, :symbol, CAST(:trigger_value AS jsonb), NOW(), :market_regime)
                     """),
                     {
                         "signal_id": trigger_result["signal_id"],
                         "symbol": trigger_result["symbol"],
                         "trigger_value": trigger_value_json,
+                        "market_regime": market_regime,
                     }
                 )
                 db.commit()

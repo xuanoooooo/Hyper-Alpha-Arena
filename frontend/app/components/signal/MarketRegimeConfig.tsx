@@ -29,24 +29,60 @@ interface RegimeConfig {
   noise_cvd_z: number
 }
 
-// Default values matching database defaults
+// Default values matching database defaults (updated 2024-12)
 const DEFAULT_CONFIG: Omit<RegimeConfig, 'id' | 'name' | 'is_default'> = {
   rolling_window: 48,
   breakout_cvd_z: 1.5,
-  breakout_oi_z: 1.0,
-  breakout_price_atr: 0.5,
-  breakout_taker_high: 1.8,
-  breakout_taker_low: 0.55,
+  breakout_oi_z: 0.1,        // OI increase threshold (% change)
+  breakout_price_atr: 0.3,   // Price movement threshold
+  breakout_taker_high: 33.0, // Taker ratio high (~25% extreme, log threshold 3.5)
+  breakout_taker_low: 0.03,  // Taker ratio low (~25% extreme, log threshold -3.5)
   absorption_cvd_z: 1.5,
   absorption_price_atr: 0.3,
   trap_cvd_z: 1.0,
-  trap_oi_z: -1.0,
+  trap_oi_z: -0.5,           // OI decrease threshold (% change)
   exhaustion_cvd_z: 1.0,
   exhaustion_rsi_high: 70.0,
   exhaustion_rsi_low: 30.0,
   stop_hunt_range_atr: 1.0,
   stop_hunt_close_atr: 0.3,
   noise_cvd_z: 0.5,
+}
+
+// Regime icons
+function IconProhibit({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M763.776 968.96H261.504C147.456 968.96 55.04 876.544 55.04 762.496V260.224C55.04 146.176 147.456 53.76 261.504 53.76h502.272C877.824 53.76 970.24 146.176 970.24 260.224v502.272c0 114.048-92.416 206.464-206.464 206.464z" fill="#FF4D3C"/>
+      <path d="M512.64 252.8c-142.592 0-258.56 115.968-258.56 258.56s115.968 258.56 258.56 258.56 258.56-115.968 258.56-258.56-115.968-258.56-258.56-258.56z m-194.688 258.56c0-42.24 13.568-81.152 36.48-113.024l271.36 271.36c-31.872 22.912-70.912 36.48-113.024 36.48-107.52 0-194.816-87.424-194.816-194.816z m352.896 113.152l-271.36-271.36c31.872-22.912 70.912-36.48 113.024-36.48 107.392 0 194.688 87.424 194.688 194.688 0.128 42.24-13.44 81.152-36.352 113.152z" fill="#FFFFFF"/>
+    </svg>
+  )
+}
+
+function IconSignal3({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 1303 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0 1024h186.18V744.73H0zM279.27 1024h186.18V558.55H279.27zM558.55 1024h186.18V372.36H558.55z" fill="#67C23A"/>
+      <path d="M837.82 1024h186.18V186.18H837.82zM1117.09 1024h186.18V0h-186.18z" fill="#E0E0E0"/>
+    </svg>
+  )
+}
+
+function IconSignal4({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 1303 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0 1024h186.18V744.73H0zM279.27 1024h186.18V558.55H279.27zM558.55 1024h186.18V372.36H558.55zM837.82 1024h186.18V186.18H837.82z" fill="#67C23A"/>
+      <path d="M1117.09 1024h186.18V0h-186.18z" fill="#E0E0E0"/>
+    </svg>
+  )
+}
+
+function IconSignal5({ className = "w-5 h-5" }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 1303 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <path d="M0 1024h186.18V744.73H0zM279.27 1024h186.18V558.55H279.27zM558.55 1024h186.18V372.36H558.55zM837.82 1024h186.18V186.18H837.82zM1117.09 1024h186.18V0h-186.18z" fill="#67C23A"/>
+    </svg>
+  )
 }
 
 // API functions
@@ -98,11 +134,12 @@ interface DecisionNodeProps {
   title: string
   color: string
   desc: string
+  icon?: React.ReactNode
   isLast?: boolean
   children: React.ReactNode
 }
 
-function DecisionNode({ title, color, desc, isLast, children }: DecisionNodeProps) {
+function DecisionNode({ title, color, desc, icon, isLast, children }: DecisionNodeProps) {
   return (
     <div className="relative">
       {/* Card row: card + description side by side */}
@@ -110,7 +147,7 @@ function DecisionNode({ title, color, desc, isLast, children }: DecisionNodeProp
         <Card className={`border-l-4 ${color} w-fit`}>
           <CardContent className="min-h-[60px] py-3 px-4 flex items-center">
             <div className="flex items-center gap-3">
-              <CheckCircle2 className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+              {icon || <CheckCircle2 className="w-4 h-4 text-muted-foreground flex-shrink-0" />}
               <span className="font-semibold text-sm min-w-[120px]">{title}</span>
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                 {children}
@@ -236,69 +273,75 @@ export default function MarketRegimeConfig() {
             </Button>
           </div>
 
-          {/* Decision Flow */}
+          {/* Decision Flow - Order matches backend classify_regime priority */}
           <div className="space-y-4">
             {/* 1. Stop Hunt */}
-            <DecisionNode title="1. Stop Hunt" color="border-red-500" desc="Liquidity grab">
+            <DecisionNode title="1. Stop Hunt" color="border-red-500" desc="Liquidity grab" icon={<IconProhibit className="w-5 h-5 flex-shrink-0" />}>
               <All />
               <Param label="Price Range >" value={config.stop_hunt_range_atr} def={1.0} range="0.5~2" onChange={v => u('stop_hunt_range_atr', v)} />
               <And />
               <Param label="Close Offset <" value={config.stop_hunt_close_atr} def={0.3} range="0.1~0.5" onChange={v => u('stop_hunt_close_atr', v)} />
             </DecisionNode>
 
-            {/* 2. Absorption */}
-            <DecisionNode title="2. Absorption" color="border-purple-500" desc="Flow absorbed">
-              <All />
-              <span className="text-foreground">CVD strong</span> <And />
-              <span className="text-foreground">Taker extreme:</span>
-              <Param label="High >" value={config.breakout_taker_high} def={1.8} range="1.5~2.5" onChange={v => u('breakout_taker_high', v)} />
-              <Or />
-              <Param label="Low <" value={config.breakout_taker_low} def={0.55} range="0.3~0.7" onChange={v => u('breakout_taker_low', v)} />
-              <And />
-              <Param label="Price Move <" value={config.absorption_price_atr} def={0.3} range="0.1~0.5" onChange={v => u('absorption_price_atr', v)} />
-            </DecisionNode>
-
-            {/* 3. Breakout */}
-            <DecisionNode title="3. Breakout" color="border-green-500" desc="Trend initiation">
+            {/* 2. Breakout */}
+            <DecisionNode title="2. Breakout" color="border-green-500" desc="Trend initiation" icon={<IconSignal5 className="w-5 h-5 flex-shrink-0" />}>
               <All />
               <Param label="CVD Ratio >" value={config.breakout_cvd_z} def={1.5} range="1~3" onChange={v => u('breakout_cvd_z', v)} />
+              <span className="text-muted-foreground text-xs">(×0.1)</span>
               <And />
-              <Param label="OI Delta >" value={config.breakout_oi_z} def={1.0} range="0.5~2" onChange={v => u('breakout_oi_z', v)} step={0.1} />
+              <Param label="Price Move >" value={config.breakout_price_atr} def={0.3} range="0.2~0.5" onChange={v => u('breakout_price_atr', v)} />
+              <span className="text-muted-foreground text-xs">(+0.2)</span>
               <And />
-              <Param label="Price Move >" value={config.breakout_price_atr} def={0.5} range="0.3~1" onChange={v => u('breakout_price_atr', v)} />
+              <span className="text-foreground">Body Ratio &gt; 0.4</span>
               <And />
-              <span className="text-foreground">Taker aligned</span>
+              <span className="text-foreground">CVD-Price aligned</span>
+              <And />
+              <Any />
+              <span className="text-foreground">Taker extreme</span>
+              <span className="text-muted-foreground text-xs">(log ±3.5)</span>
+              <Or />
+              <Param label="OI Delta >" value={config.breakout_oi_z} def={0.1} range="0.05~0.5" onChange={v => u('breakout_oi_z', v)} step={0.05} />
             </DecisionNode>
 
-            {/* 4. Continuation */}
-            <DecisionNode title="4. Continuation" color="border-blue-500" desc="Trend continues">
+            {/* 3. Exhaustion */}
+            <DecisionNode title="3. Exhaustion" color="border-orange-500" desc="Trend weakening" icon={<IconSignal3 className="w-5 h-5 flex-shrink-0" />}>
               <All />
-              <span className="text-foreground">CVD: {(config.breakout_cvd_z * 0.05).toFixed(2)}~{(config.breakout_cvd_z * 0.1).toFixed(2)}</span>
-              <span className="text-muted-foreground text-xs">(from Breakout)</span>
+              <span className="text-foreground">CVD strong</span>
               <And />
-              <span className="text-foreground">OI Delta ≥ 0</span>
+              <Param label="OI Delta <" value={config.trap_oi_z} def={-0.5} range="-2~0" onChange={v => u('trap_oi_z', v)} />
               <And />
-              <span className="text-foreground">Price Move &gt; {config.absorption_price_atr}</span>
-              <span className="text-muted-foreground text-xs">(from Absorption)</span>
-            </DecisionNode>
-
-            {/* 5. Exhaustion */}
-            <DecisionNode title="5. Exhaustion" color="border-orange-500" desc="Trend weakening">
-              <All />
-              <span className="text-foreground">CVD strong</span> <And />
-              <span className="text-foreground">Taker extreme</span> <And />
-              <span className="text-foreground">OI Delta &lt; 0</span> <And />
               <Any />
               <Param label="RSI >" value={config.exhaustion_rsi_high} def={70} range="65~80" onChange={v => u('exhaustion_rsi_high', v)} step={1} />
               <Or />
               <Param label="RSI <" value={config.exhaustion_rsi_low} def={30} range="20~35" onChange={v => u('exhaustion_rsi_low', v)} step={1} />
             </DecisionNode>
 
-            {/* 6. Trap */}
-            <DecisionNode title="6. Trap" color="border-yellow-600" desc="False breakout">
+            {/* 4. Trap */}
+            <DecisionNode title="4. Trap" color="border-yellow-600" desc="False breakout" icon={<IconProhibit className="w-5 h-5 flex-shrink-0" />}>
               <All />
-              <span className="text-foreground">CVD strong</span> <And />
-              <Param label="OI Delta <" value={config.trap_oi_z} def={-1.0} range="-2~0" onChange={v => u('trap_oi_z', v)} />
+              <span className="text-foreground">CVD strong</span>
+              <And />
+              <span className="text-foreground">OI Delta &lt; {config.trap_oi_z}</span>
+              <span className="text-muted-foreground text-xs">(from Exhaustion)</span>
+            </DecisionNode>
+
+            {/* 5. Absorption */}
+            <DecisionNode title="5. Absorption" color="border-purple-500" desc="Flow absorbed" icon={<IconSignal3 className="w-5 h-5 flex-shrink-0" />}>
+              <All />
+              <span className="text-foreground">CVD strong</span>
+              <And />
+              <Param label="Price Move <" value={config.absorption_price_atr} def={0.3} range="0.1~0.5" onChange={v => u('absorption_price_atr', v)} />
+            </DecisionNode>
+
+            {/* 6. Continuation */}
+            <DecisionNode title="6. Continuation" color="border-blue-500" desc="Trend continues" icon={<IconSignal4 className="w-5 h-5 flex-shrink-0" />}>
+              <All />
+              <span className="text-foreground">CVD weak</span>
+              <span className="text-muted-foreground text-xs">(&gt;0.05)</span>
+              <And />
+              <span className="text-foreground">Price Move &gt; {config.absorption_price_atr}</span>
+              <And />
+              <span className="text-foreground">CVD-Price aligned</span>
             </DecisionNode>
 
             {/* 7. Noise */}
