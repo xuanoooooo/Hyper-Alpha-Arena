@@ -349,13 +349,8 @@ export default function PromptManager() {
       return
     }
 
-    // Check premium status
-    if (membership?.status !== 'ACTIVE') {
-      setPremiumModalOpen(true)
-      return
-    }
-
-    // Premium user: open AI generator
+    // Limited Time Free - skip premium check
+    // Open AI generator
     setAiChatModalOpen(true)
   }
 

@@ -87,13 +87,8 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
       return
     }
 
-    // Check premium status
-    if (!isPremium) {
-      setShowPremiumModal(true)
-      return
-    }
-
-    // Premium user: navigate to prompt page
+    // Limited Time Free - skip premium check
+    // Navigate to prompt page
     onPageChange?.('prompt-management')
   }
 
@@ -348,6 +343,7 @@ export default function PremiumFeaturesView({ onAccountUpdated, onPageChange }: 
                     <CardTitle className="flex items-center gap-2 text-lg">
                       <Sparkles className="w-5 h-5 text-purple-500" />
                       AI Prompt Generator
+                      <Badge className="bg-green-500 text-white text-xs">Limited Time Free</Badge>
                     </CardTitle>
                     <CardDescription className="text-xs">
                       Generate professional trading strategy prompts through natural language conversation with AI
