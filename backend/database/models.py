@@ -338,6 +338,15 @@ class AIDecisionLog(Base):
     hyperliquid_environment = Column(String(20), nullable=True)  # "testnet" | "mainnet" | null (paper)
     wallet_address = Column(String(100), nullable=True, index=True)
 
+    # Decision tracking fields for analysis
+    prompt_template_id = Column(Integer, nullable=True, index=True)  # Link to strategy/prompt template
+    signal_trigger_id = Column(Integer, nullable=True, index=True)  # Link to signal trigger
+    hyperliquid_order_id = Column(String(100), nullable=True, index=True)  # Main order ID from Hyperliquid
+    tp_order_id = Column(String(100), nullable=True)  # Take profit order ID
+    sl_order_id = Column(String(100), nullable=True)  # Stop loss order ID
+    realized_pnl = Column(DECIMAL(18, 6), nullable=True)  # Realized PnL (filled on user refresh)
+    pnl_updated_at = Column(TIMESTAMP, nullable=True)  # When PnL was last updated
+
     # Relationships
     account = relationship("Account")
     order = relationship("Order")

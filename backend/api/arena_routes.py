@@ -872,3 +872,199 @@ def get_aggregated_analytics(
         "accounts": analytics,
         "summary": summary,
     }
+
+
+@router.post("/update-pnl")
+def update_pnl_data(db: Session = Depends(get_db)):
+    """
+    Update realized PnL and fee data for all trades by fetching from Hyperliquid API.
+
+    This endpoint:
+    1. Fetches user_fills from all configured wallets (testnet + mainnet)
+    2. Updates HyperliquidTrade.fee with actual fee data
+    3. Updates AIDecisionLog.realized_pnl for closed positions
+
+    Returns summary of updated records.
+    """
+    from database.models import HyperliquidWallet, AccountPromptBinding
+    from services.hyperliquid_environment import get_hyperliquid_client
+    from decimal import Decimal
+    from collections import defaultdict
+
+    result = {
+        "success": True,
+        "environments": {},
+        "errors": [],
+    }
+
+    snapshot_db = SnapshotSessionLocal()
+
+    try:
+        # Get all configured wallets
+        wallets = db.query(HyperliquidWallet).all()
+        if not wallets:
+            return {
+                "success": False,
+                "message": "No Hyperliquid wallets configured",
+                "environments": {},
+                "errors": [],
+            }
+
+        # Group wallets by (account_id, environment) to avoid duplicates
+        wallet_configs = {}
+        for w in wallets:
+            key = (w.account_id, w.environment)
+            if key not in wallet_configs:
+                wallet_configs[key] = w
+
+        # Process each wallet
+        all_fills_by_env = defaultdict(list)
+
+        for (account_id, environment), wallet in wallet_configs.items():
+            try:
+                client = get_hyperliquid_client(db, account_id, override_environment=environment)
+                fills = client._get_user_fills(db)
+                all_fills_by_env[environment].extend(fills)
+                logger.info(f"Fetched {len(fills)} fills for account {account_id} on {environment}")
+            except Exception as e:
+                error_msg = f"Failed to fetch fills for account {account_id} on {environment}: {str(e)}"
+                logger.warning(error_msg)
+                result["errors"].append(error_msg)
+
+        # Process fills for each environment
+        for environment, fills in all_fills_by_env.items():
+            env_result = _process_fills_for_environment(
+                db, snapshot_db, environment, fills
+            )
+            result["environments"][environment] = env_result
+
+        # Commit all changes
+        snapshot_db.commit()
+        db.commit()
+
+    except Exception as e:
+        logger.error(f"Error updating PnL data: {e}", exc_info=True)
+        result["success"] = False
+        result["errors"].append(str(e))
+        snapshot_db.rollback()
+        db.rollback()
+    finally:
+        snapshot_db.close()
+
+    return result
+
+
+def _process_fills_for_environment(
+    db: Session,
+    snapshot_db: Session,
+    environment: str,
+    fills: List[dict],
+) -> dict:
+    """
+    Process fills for a specific environment and update database records.
+
+    Returns summary of updates.
+    """
+    from decimal import Decimal
+    from collections import defaultdict
+
+    result = {
+        "fills_count": len(fills),
+        "unique_orders": 0,
+        "trades_updated": 0,
+        "decisions_updated": 0,
+        "skipped": 0,
+    }
+
+    if not fills:
+        return result
+
+    # Aggregate fills by order ID
+    # One order can have multiple fills (partial executions)
+    order_aggregates = defaultdict(lambda: {
+        "total_fee": Decimal("0"),
+        "total_pnl": Decimal("0"),
+        "fills": [],
+    })
+
+    for fill in fills:
+        oid = str(fill.get("oid", ""))
+        if not oid:
+            continue
+
+        fee = Decimal(str(fill.get("fee", "0")))
+        closed_pnl = Decimal(str(fill.get("closedPnl", "0")))
+
+        order_aggregates[oid]["total_fee"] += fee
+        order_aggregates[oid]["total_pnl"] += closed_pnl
+        order_aggregates[oid]["fills"].append(fill)
+
+    result["unique_orders"] = len(order_aggregates)
+
+    # Update HyperliquidTrade records
+    trades = snapshot_db.query(HyperliquidTrade).filter(
+        HyperliquidTrade.environment == environment
+    ).all()
+
+    for trade in trades:
+        order_id = str(trade.order_id)
+        if order_id in order_aggregates:
+            agg = order_aggregates[order_id]
+            # Update fee
+            if trade.fee != agg["total_fee"]:
+                trade.fee = agg["total_fee"]
+                result["trades_updated"] += 1
+        else:
+            result["skipped"] += 1
+
+    # Update AIDecisionLog records
+    # Match by hyperliquid_order_id (new records) or by time window (historical)
+    decisions = db.query(AIDecisionLog).filter(
+        AIDecisionLog.operation.in_(["buy", "sell", "close"]),
+        AIDecisionLog.executed == "true",
+        AIDecisionLog.hyperliquid_environment == environment,
+    ).all()
+
+    for decision in decisions:
+        updated = False
+
+        # Try direct match by hyperliquid_order_id
+        if decision.hyperliquid_order_id:
+            order_id = str(decision.hyperliquid_order_id)
+            if order_id in order_aggregates:
+                agg = order_aggregates[order_id]
+                if agg["total_pnl"] != 0:  # Only update if there's actual PnL
+                    decision.realized_pnl = agg["total_pnl"]
+                    decision.pnl_updated_at = datetime.utcnow()
+                    updated = True
+
+        # Fallback: match by time window using HyperliquidTrade
+        if not updated and decision.decision_time:
+            from datetime import timedelta
+            time_window = timedelta(minutes=5)
+
+            matching_trade = snapshot_db.query(HyperliquidTrade).filter(
+                HyperliquidTrade.account_id == decision.account_id,
+                HyperliquidTrade.symbol == decision.symbol,
+                HyperliquidTrade.environment == environment,
+                HyperliquidTrade.trade_time >= decision.decision_time - time_window,
+                HyperliquidTrade.trade_time <= decision.decision_time + time_window,
+            ).first()
+
+            if matching_trade:
+                order_id = str(matching_trade.order_id)
+                if order_id in order_aggregates:
+                    agg = order_aggregates[order_id]
+                    if agg["total_pnl"] != 0:
+                        decision.realized_pnl = agg["total_pnl"]
+                        decision.pnl_updated_at = datetime.utcnow()
+                        updated = True
+
+                    # Also update hyperliquid_order_id for future direct matching
+                    if not decision.hyperliquid_order_id:
+                        decision.hyperliquid_order_id = order_id
+
+        if updated:
+            result["decisions_updated"] += 1
+
+    return result

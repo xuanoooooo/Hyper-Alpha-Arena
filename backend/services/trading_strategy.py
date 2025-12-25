@@ -350,6 +350,7 @@ class HyperliquidStrategyManager(StrategyManager):
                         "triggered_signals": triggered_signals,
                         "trigger_symbol": symbol,
                         "market_data_snapshot": market_data,
+                        "signal_trigger_id": pool.get("trigger_log_id"),  # For decision tracking
                     }
                     print(f"[HyperliquidStrategy] Executing strategy for account {account_id} (signal pool: {pool_name})")
                     self._execute_strategy(

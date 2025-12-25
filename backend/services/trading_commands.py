@@ -425,6 +425,20 @@ def place_ai_driven_hyperliquid_order(
             wallet_address = getattr(client, "wallet_address", None)
             decision_kwargs = {"wallet_address": wallet_address}
 
+            # Get tracking fields for decision analysis (failures should not affect core business)
+            try:
+                from database.models import AccountPromptBinding
+                binding = db.query(AccountPromptBinding).filter_by(account_id=account.id).first()
+                decision_kwargs["prompt_template_id"] = binding.prompt_template_id if binding else None
+            except Exception as e:
+                logger.warning(f"Failed to get prompt_template_id for {account.name}: {e}")
+                decision_kwargs["prompt_template_id"] = None
+
+            # Get signal_trigger_id from trigger_context (only present for signal-triggered decisions)
+            decision_kwargs["signal_trigger_id"] = (
+                trigger_context.get("signal_trigger_id") if trigger_context else None
+            )
+
             # Get real account state from Hyperliquid
             try:
                 account_state = client.get_account_state(db)
@@ -1017,6 +1031,12 @@ def place_ai_driven_hyperliquid_order(
                     print(f"[DEBUG] {operation.upper()} order_result: {order_result}")
                     order_status = order_result.get('status')
                     order_id = order_result.get('order_id')
+
+                    # Update decision_kwargs with order IDs for tracking (only when order succeeded)
+                    if order_status in ('filled', 'resting'):
+                        decision_kwargs["hyperliquid_order_id"] = order_result.get('order_id')
+                        decision_kwargs["tp_order_id"] = order_result.get('tp_order_id')
+                        decision_kwargs["sl_order_id"] = order_result.get('sl_order_id')
 
                     if order_status == 'filled':
                         logger.info(

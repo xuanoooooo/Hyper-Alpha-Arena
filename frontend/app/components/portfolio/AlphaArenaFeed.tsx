@@ -13,6 +13,7 @@ import {
   getModelChatSnapshots,
   ModelChatSnapshots,
   getHyperliquidWatchlist,
+  updateArenaPnl,
 } from '@/lib/api'
 import { useArenaData } from '@/contexts/ArenaDataContext'
 import { useTradingMode } from '@/contexts/TradingModeContext'
@@ -82,6 +83,8 @@ export default function AlphaArenaFeed({
   const [loadingModelChat, setLoadingModelChat] = useState(false)
   const [loadingPositions, setLoadingPositions] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [updatingPnl, setUpdatingPnl] = useState(false)
+  const [pnlUpdateResult, setPnlUpdateResult] = useState<string | null>(null)
 
   const [trades, setTrades] = useState<ArenaTrade[]>([])
   const [modelChat, setModelChat] = useState<ArenaModelChatEntry[]>([])
@@ -610,6 +613,41 @@ export default function AlphaArenaFeed({
   const isSectionCopied = (entryId: number, section: 'prompt' | 'reasoning' | 'decision') =>
     !!copiedSections[`${entryId}-${section}`]
 
+  // Handle PnL data update
+  const handleUpdatePnl = async () => {
+    setUpdatingPnl(true)
+    setPnlUpdateResult(null)
+    try {
+      const result = await updateArenaPnl()
+      if (result.success) {
+        // Calculate total updates across all environments
+        let totalTrades = 0
+        let totalDecisions = 0
+        Object.values(result.environments).forEach((env) => {
+          totalTrades += env.trades_updated
+          totalDecisions += env.decisions_updated
+        })
+        setPnlUpdateResult(
+          t('feed.pnlUpdateSuccess', 'Updated {{trades}} trades, {{decisions}} decisions', {
+            trades: totalTrades,
+            decisions: totalDecisions,
+          })
+        )
+        // Refresh trades data to show updated values
+        setManualRefreshKey((key) => key + 1)
+      } else {
+        setPnlUpdateResult(result.message || t('feed.pnlUpdateFailed', 'Update failed'))
+      }
+    } catch (err) {
+      console.error('Failed to update PnL:', err)
+      setPnlUpdateResult(t('feed.pnlUpdateError', 'Error updating PnL data'))
+    } finally {
+      setUpdatingPnl(false)
+      // Clear result message after 5 seconds
+      setTimeout(() => setPnlUpdateResult(null), 5000)
+    }
+  }
+
   // Load snapshots for a specific entry when expanded
   const loadSnapshots = useCallback(async (entryId: number) => {
     // Skip if already cached or loading
@@ -725,6 +763,28 @@ export default function AlphaArenaFeed({
           {!error && (
             <>
               <TabsContent value="trades" className="flex-1 h-0 overflow-y-auto mt-0 p-4 space-y-4">
+                {/* PnL Update Button */}
+                <div className="flex items-center justify-between gap-2 pb-2 border-b border-border">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleUpdatePnl}
+                    disabled={updatingPnl}
+                    className="text-xs"
+                  >
+                    {updatingPnl ? (
+                      <>
+                        <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                        {t('feed.updatingPnl', 'Updating...')}
+                      </>
+                    ) : (
+                      t('feed.updatePnl', 'Update PnL Data')
+                    )}
+                  </Button>
+                  {pnlUpdateResult && (
+                    <span className="text-xs text-muted-foreground">{pnlUpdateResult}</span>
+                  )}
+                </div>
                 {loadingTrades && trades.length === 0 ? (
                   <div className="text-xs text-muted-foreground">{t('feed.loadingTrades', 'Loading trades...')}</div>
                 ) : trades.length === 0 ? (

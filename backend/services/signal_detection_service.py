@@ -311,7 +311,9 @@ class SignalDetectionService:
                 ],
                 "all_signals": signal_details,
             }
-            self._log_pool_trigger(trigger_result)
+            # Log to database and get trigger_log_id for tracking
+            trigger_log_id = self._log_pool_trigger(trigger_result)
+            trigger_result["trigger_log_id"] = trigger_log_id
             return trigger_result
 
         return None
@@ -557,8 +559,8 @@ class SignalDetectionService:
             "volume_threshold": volume_threshold,
         }
 
-    def _log_pool_trigger(self, trigger_result: dict):
-        """Log pool trigger to database"""
+    def _log_pool_trigger(self, trigger_result: dict) -> int | None:
+        """Log pool trigger to database and return the trigger_log_id."""
         try:
             import json
             from database.connection import SessionLocal
@@ -597,11 +599,13 @@ class SignalDetectionService:
                 # Get market regime for this trigger
                 market_regime = _get_market_regime_for_trigger(trigger_result["symbol"])
 
-                db.execute(
+                # Insert and return the new trigger_log_id
+                result = db.execute(
                     text("""
                         INSERT INTO signal_trigger_logs
                         (pool_id, symbol, trigger_value, triggered_at, market_regime)
                         VALUES (:pool_id, :symbol, CAST(:trigger_value AS jsonb), NOW(), :market_regime)
+                        RETURNING id
                     """),
                     {
                         "pool_id": trigger_result["pool_id"],
@@ -610,6 +614,7 @@ class SignalDetectionService:
                         "market_regime": market_regime,
                     }
                 )
+                trigger_log_id = result.scalar()
                 db.commit()
 
                 signals_info = ", ".join([
@@ -617,13 +622,15 @@ class SignalDetectionService:
                 ])
                 logger.info(
                     f"Pool triggered: {trigger_result['pool_name']} ({trigger_result['logic']}) "
-                    f"on {trigger_result['symbol']} - signals: [{signals_info}]"
+                    f"on {trigger_result['symbol']} - signals: [{signals_info}] (trigger_log_id={trigger_log_id})"
                 )
+                return trigger_log_id
             finally:
                 db.close()
 
         except Exception as e:
             logger.error(f"Failed to log pool trigger: {e}")
+            return None
 
     def _time_window_to_period(self, time_window: int) -> str:
         """Convert time window (seconds or string) to period string"""

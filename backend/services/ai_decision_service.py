@@ -1781,6 +1781,12 @@ def save_ai_decision(
     executed: bool = False,
     order_id: Optional[int] = None,
     wallet_address: Optional[str] = None,
+    # Decision tracking fields for analysis chain
+    prompt_template_id: Optional[int] = None,
+    signal_trigger_id: Optional[int] = None,
+    hyperliquid_order_id: Optional[str] = None,
+    tp_order_id: Optional[str] = None,
+    sl_order_id: Optional[str] = None,
 ) -> None:
     """Save AI decision to the decision log"""
     try:
@@ -1849,6 +1855,12 @@ def save_ai_decision(
             decision_snapshot=decision_snapshot_structured or raw_decision_snapshot,
             hyperliquid_environment=hyperliquid_environment,
             wallet_address=wallet_address,
+            # Decision tracking fields for analysis chain
+            prompt_template_id=prompt_template_id,
+            signal_trigger_id=signal_trigger_id,
+            hyperliquid_order_id=hyperliquid_order_id,
+            tp_order_id=tp_order_id,
+            sl_order_id=sl_order_id,
         )
 
         db.add(decision_log)

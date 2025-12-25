@@ -520,6 +520,26 @@ export async function getArenaTrades(params?: { limit?: number; account_id?: num
   return response.json()
 }
 
+export interface UpdatePnlEnvironmentResult {
+  fills_count: number
+  unique_orders: number
+  trades_updated: number
+  decisions_updated: number
+  skipped: number
+}
+
+export interface UpdatePnlResponse {
+  success: boolean
+  message?: string
+  environments: Record<string, UpdatePnlEnvironmentResult>
+  errors: string[]
+}
+
+export async function updateArenaPnl(): Promise<UpdatePnlResponse> {
+  const response = await apiRequest('/arena/update-pnl', { method: 'POST' })
+  return response.json()
+}
+
 export interface ArenaModelChatEntry {
   id: number
   account_id: number
