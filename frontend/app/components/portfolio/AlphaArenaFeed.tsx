@@ -18,6 +18,14 @@ import {
 import { useArenaData } from '@/contexts/ArenaDataContext'
 import { useTradingMode } from '@/contexts/TradingModeContext'
 import { Button } from '@/components/ui/button'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { getModelLogo } from './logoAssets'
 import FlipNumber from './FlipNumber'
 import HighlightWrapper from './HighlightWrapper'
@@ -85,6 +93,7 @@ export default function AlphaArenaFeed({
   const [error, setError] = useState<string | null>(null)
   const [updatingPnl, setUpdatingPnl] = useState(false)
   const [pnlUpdateResult, setPnlUpdateResult] = useState<string | null>(null)
+  const [showPnlConfirm, setShowPnlConfirm] = useState(false)
 
   const [trades, setTrades] = useState<ArenaTrade[]>([])
   const [modelChat, setModelChat] = useState<ArenaModelChatEntry[]>([])
@@ -768,7 +777,7 @@ export default function AlphaArenaFeed({
                   <Button
                     variant="outline"
                     size="sm"
-                    onClick={handleUpdatePnl}
+                    onClick={() => setShowPnlConfirm(true)}
                     disabled={updatingPnl}
                     className="text-xs"
                   >
@@ -785,6 +794,27 @@ export default function AlphaArenaFeed({
                     <span className="text-xs text-muted-foreground">{pnlUpdateResult}</span>
                   )}
                 </div>
+
+                {/* PnL Update Confirmation Dialog */}
+                <Dialog open={showPnlConfirm} onOpenChange={setShowPnlConfirm}>
+                  <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                      <DialogTitle>{t('feed.confirmUpdatePnl', 'Confirm Update PnL Data')}</DialogTitle>
+                      <DialogDescription>
+                        {t('feed.confirmUpdatePnlDesc', 'This will fetch the latest fee and PnL data from Hyperliquid API, consuming 2 API calls (testnet + mainnet). Continue?')}
+                      </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="gap-2 sm:gap-0">
+                      <Button variant="outline" onClick={() => setShowPnlConfirm(false)}>
+                        {t('common.cancel', 'Cancel')}
+                      </Button>
+                      <Button onClick={() => { setShowPnlConfirm(false); handleUpdatePnl(); }}>
+                        {t('common.confirm', 'Confirm')}
+                      </Button>
+                    </DialogFooter>
+                  </DialogContent>
+                </Dialog>
+
                 {loadingTrades && trades.length === 0 ? (
                   <div className="text-xs text-muted-foreground">{t('feed.loadingTrades', 'Loading trades...')}</div>
                 ) : trades.length === 0 ? (

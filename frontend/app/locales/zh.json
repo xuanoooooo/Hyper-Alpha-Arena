@@ -521,7 +521,14 @@
     "leverage": "杠杆",
     "marginUsedCol": "占用保证金",
     "currentValue": "当前价值",
-    "portfolioPercent": "仓位占比"
+    "portfolioPercent": "仓位占比",
+    "updatePnl": "更新盈亏数据",
+    "updatingPnl": "更新中...",
+    "pnlUpdateSuccess": "已更新 {{trades}} 条交易，{{decisions}} 条决策",
+    "pnlUpdateFailed": "更新失败",
+    "pnlUpdateError": "更新盈亏数据时出错",
+    "confirmUpdatePnl": "确认更新盈亏数据",
+    "confirmUpdatePnlDesc": "此操作将从 Hyperliquid API 获取最新的手续费和盈亏数据，会消耗两次 API 调用（测试网 + 主网）。确定要继续吗？"
   },
   "toast": {
     "success": "成功",
