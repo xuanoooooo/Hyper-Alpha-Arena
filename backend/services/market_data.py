@@ -37,11 +37,11 @@ def get_last_price(symbol: str, market: str = "CRYPTO", environment: str = "main
         raise Exception(f"Unable to get real-time price for {key}: {hl_err}")
 
 
-def get_kline_data(symbol: str, market: str = "CRYPTO", period: str = "1d", count: int = 100, environment: str = "mainnet") -> List[Dict[str, Any]]:
+def get_kline_data(symbol: str, market: str = "CRYPTO", period: str = "1d", count: int = 100, environment: str = "mainnet", persist: bool = True) -> List[Dict[str, Any]]:
     key = f"{symbol}.{market}.{environment}"
 
     try:
-        data = get_kline_data_from_hyperliquid(symbol, period, count, persist=True, environment=environment)
+        data = get_kline_data_from_hyperliquid(symbol, period, count, persist=persist, environment=environment)
         if data:
             logger.info(f"Got K-line data for {key} from Hyperliquid ({environment}), total {len(data)} items")
             return data

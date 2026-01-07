@@ -759,8 +759,8 @@ def _build_prompt_context(
     recent_trades_summary = "No recent trade history available"
     if hyperliquid_state and environment in ("testnet", "mainnet"):
         try:
-            # Get trading client to fetch recent closed trades
-            from services.hyperliquid_trading_client import HyperliquidTradingClient
+            # Get trading client to fetch recent closed trades (use cached client for performance)
+            from services.hyperliquid_trading_client import get_cached_trading_client
             from database.connection import SessionLocal
 
             # Get account's Hyperliquid wallet configuration
@@ -782,8 +782,8 @@ def _build_prompt_context(
                         recent_trades_summary = "Error: Failed to decrypt wallet private key"
                         raise
 
-                    # Initialize trading client
-                    client = HyperliquidTradingClient(
+                    # Initialize trading client (cached for ~8s cold start savings)
+                    client = get_cached_trading_client(
                         account_id=account.id,
                         private_key=private_key,
                         environment=environment,
@@ -2508,9 +2508,78 @@ def _build_klines_and_indicators_context(
     """
     Build K-line and indicator context for prompt filling.
 
+    Uses parallel fetching for improved performance when multiple symbols/periods
+    are requested. Each (symbol, period) combination is processed concurrently.
+
     Args:
         variable_groups: Parsed variable groups from _parse_kline_indicator_variables
         db: Database session
+        environment: Trading environment (mainnet/testnet)
+
+    Returns:
+        Dict mapping variable names to formatted strings
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    import threading
+
+    context = {}
+
+    # If only one group, process directly without threading overhead
+    if len(variable_groups) <= 1:
+        for (symbol, period), requirements in variable_groups.items():
+            result = _process_single_symbol_period(symbol, period, requirements, environment)
+            context.update(result)
+        logger.info(f"Built context with {len(context)} variables for environment: {environment}")
+        return context
+
+    # Use thread pool for parallel fetching
+    # Limit workers to avoid overwhelming the API
+    max_workers = min(len(variable_groups), 4)
+
+    start_time = time.time()
+    logger.info(f"[PARALLEL] Starting parallel fetch for {len(variable_groups)} symbol/period groups with {max_workers} workers")
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        # Submit all tasks
+        future_to_key = {}
+        for (symbol, period), requirements in variable_groups.items():
+            future = executor.submit(
+                _process_single_symbol_period,
+                symbol, period, requirements, environment
+            )
+            future_to_key[future] = (symbol, period)
+
+        # Collect results as they complete
+        for future in as_completed(future_to_key):
+            key = future_to_key[future]
+            try:
+                result = future.result()
+                context.update(result)
+                logger.debug(f"[PARALLEL] Completed {key[0]} {key[1]}: {len(result)} variables")
+            except Exception as e:
+                logger.error(f"[PARALLEL] Error processing {key[0]} {key[1]}: {e}", exc_info=True)
+
+    elapsed = time.time() - start_time
+    logger.info(f"[PARALLEL] Built context with {len(context)} variables in {elapsed:.2f}s for environment: {environment}")
+    return context
+
+
+def _process_single_symbol_period(
+    symbol: str,
+    period: Optional[str],
+    requirements: Dict[str, Any],
+    environment: str
+) -> Dict[str, str]:
+    """
+    Process a single (symbol, period) combination and return context variables.
+
+    This function is designed to be called in parallel for different symbol/period
+    combinations. It handles K-line fetching, indicator calculation, and formatting.
+
+    Args:
+        symbol: Trading symbol (e.g., "BTC")
+        period: Time period (e.g., "5m", "1h") or None for market data
+        requirements: Dict with 'klines', 'indicators', 'flow_indicators', 'market_data' keys
         environment: Trading environment (mainnet/testnet)
 
     Returns:
@@ -2522,130 +2591,132 @@ def _build_klines_and_indicators_context(
 
     context = {}
 
-    for (symbol, period), requirements in variable_groups.items():
-        try:
-            # Handle market data (no period)
-            if period is None and requirements['market_data']:
-                logger.info(f"Processing market data for {symbol} in {environment}")
-                try:
-                    ticker = get_ticker_data(symbol, "CRYPTO", environment)
-                    if ticker:
-                        market_data_lines = [
-                            f"Symbol: {symbol}",
-                            f"Price: ${ticker['price']:.2f}",
-                            f"24h Change: {ticker['change24h']:+.2f} ({ticker['percentage24h']:+.2f}%)",
-                            f"24h Volume: ${ticker['volume24h']:,.0f}",
-                        ]
-                        if 'open_interest' in ticker:
-                            market_data_lines.append(f"Open Interest: ${ticker['open_interest']:,.0f}")
-                        if 'funding_rate' in ticker:
-                            market_data_lines.append(f"Funding Rate: {ticker['funding_rate']:.6f}%")
+    try:
+        # Handle market data (no period)
+        if period is None and requirements.get('market_data'):
+            logger.info(f"Processing market data for {symbol} in {environment}")
+            try:
+                ticker = get_ticker_data(symbol, "CRYPTO", environment)
+                if ticker:
+                    market_data_lines = [
+                        f"Symbol: {symbol}",
+                        f"Price: ${ticker['price']:.2f}",
+                        f"24h Change: {ticker['change24h']:+.2f} ({ticker['percentage24h']:+.2f}%)",
+                        f"24h Volume: ${ticker['volume24h']:,.0f}",
+                    ]
+                    if 'open_interest' in ticker:
+                        market_data_lines.append(f"Open Interest: ${ticker['open_interest']:,.0f}")
+                    if 'funding_rate' in ticker:
+                        market_data_lines.append(f"Funding Rate: {ticker['funding_rate']:.6f}%")
 
-                        var_name = f"{symbol}_market_data"
-                        context[var_name] = "\n".join(market_data_lines)
-                        logger.debug(f"Added market data variable: {var_name}")
-                except Exception as ticker_err:
-                    logger.warning(f"Failed to get ticker data for {symbol}: {ticker_err}")
-                continue
+                    var_name = f"{symbol}_market_data"
+                    context[var_name] = "\n".join(market_data_lines)
+                    logger.debug(f"Added market data variable: {var_name}")
+            except Exception as ticker_err:
+                logger.warning(f"Failed to get ticker data for {symbol}: {ticker_err}")
+            return context
 
-            # Process K-lines and indicators (has period)
-            logger.info(f"Processing {symbol} {period} for environment: {environment}")
+        # Process K-lines and indicators (has period)
+        logger.info(f"Processing {symbol} {period} for environment: {environment}")
 
-            # Always fetch 500 candles for accurate indicator calculation
-            kline_data = get_kline_data(
-                symbol=symbol,
-                market="CRYPTO",
-                period=period,
-                count=500,
-                environment=environment
-            )
+        # Always fetch 500 candles for accurate indicator calculation
+        # Skip persistence for prompt generation (real-time data only, no DB write overhead)
+        kline_data = get_kline_data(
+            symbol=symbol,
+            market="CRYPTO",
+            period=period,
+            count=500,
+            environment=environment,
+            persist=False
+        )
 
-            if not kline_data:
-                logger.warning(f"No K-line data for {symbol} {period} in {environment}")
-                continue
+        if not kline_data:
+            logger.warning(f"No K-line data for {symbol} {period} in {environment}")
+            return context
 
-            # Process K-line variables
-            if requirements['klines']:
-                count = requirements['klines']['count']
-                # Take last N candles for display
-                display_klines = kline_data[-count:] if len(kline_data) >= count else kline_data
-                formatted_klines = _format_klines_summary(display_klines)
+        # Process K-line variables
+        if requirements.get('klines'):
+            count = requirements['klines']['count']
+            # Take last N candles for display
+            display_klines = kline_data[-count:] if len(kline_data) >= count else kline_data
+            formatted_klines = _format_klines_summary(display_klines)
 
-                # Variable name: {BTC_klines_15m}
-                var_name = f"{symbol}_klines_{period}"
-                context[var_name] = formatted_klines
-                logger.debug(f"Added K-line variable: {var_name} ({len(display_klines)} candles)")
+            # Variable name: {BTC_klines_15m}
+            var_name = f"{symbol}_klines_{period}"
+            context[var_name] = formatted_klines
+            logger.debug(f"Added K-line variable: {var_name} ({len(display_klines)} candles)")
 
-            # Calculate and process indicators
-            if requirements['indicators']:
-                indicators_to_calc = requirements['indicators']
-                calculated = calculate_indicators(kline_data, indicators_to_calc)
+        # Calculate and process indicators
+        if requirements.get('indicators'):
+            indicators_to_calc = requirements['indicators']
+            calculated = calculate_indicators(kline_data, indicators_to_calc)
 
-                # Track compound indicators (MA, EMA) for merged output
-                ma_indicators = []
-                ema_indicators = []
+            # Track compound indicators (MA, EMA) for merged output
+            ma_indicators = []
+            ema_indicators = []
 
-                for indicator_name in indicators_to_calc:
-                    indicator_data = calculated.get(indicator_name)
-                    formatted = _format_single_indicator(indicator_name, indicator_data)
+            for indicator_name in indicators_to_calc:
+                indicator_data = calculated.get(indicator_name)
+                formatted = _format_single_indicator(indicator_name, indicator_data)
 
-                    # Variable name: {BTC_RSI14_15m}
-                    var_name = f"{symbol}_{indicator_name}_{period}"
-                    context[var_name] = formatted
-                    logger.debug(f"Added indicator variable: {var_name}")
+                # Variable name: {BTC_RSI14_15m}
+                var_name = f"{symbol}_{indicator_name}_{period}"
+                context[var_name] = formatted
+                logger.debug(f"Added indicator variable: {var_name}")
 
-                    # Track for compound output
-                    if indicator_name.startswith('MA') and indicator_name[2:].isdigit():
-                        ma_indicators.append((indicator_name, formatted))
-                    elif indicator_name.startswith('EMA') and indicator_name[3:].isdigit():
-                        ema_indicators.append((indicator_name, formatted))
+                # Track for compound output
+                if indicator_name.startswith('MA') and indicator_name[2:].isdigit():
+                    ma_indicators.append((indicator_name, formatted))
+                elif indicator_name.startswith('EMA') and indicator_name[3:].isdigit():
+                    ema_indicators.append((indicator_name, formatted))
 
-                # Generate compound MA variable: {BTC_MA_15m}
-                if ma_indicators:
-                    ma_lines = []
-                    for ind_name, ind_formatted in sorted(ma_indicators):
-                        ma_lines.append(f"**{ind_name}**")
-                        ma_lines.append(ind_formatted)
-                        ma_lines.append("")
-                    compound_var = f"{symbol}_MA_{period}"
-                    context[compound_var] = "\n".join(ma_lines).strip()
-                    logger.debug(f"Added compound MA variable: {compound_var}")
+            # Generate compound MA variable: {BTC_MA_15m}
+            if ma_indicators:
+                ma_lines = []
+                for ind_name, ind_formatted in sorted(ma_indicators):
+                    ma_lines.append(f"**{ind_name}**")
+                    ma_lines.append(ind_formatted)
+                    ma_lines.append("")
+                compound_var = f"{symbol}_MA_{period}"
+                context[compound_var] = "\n".join(ma_lines).strip()
+                logger.debug(f"Added compound MA variable: {compound_var}")
 
-                # Generate compound EMA variable: {BTC_EMA_15m}
-                if ema_indicators:
-                    ema_lines = []
-                    for ind_name, ind_formatted in sorted(ema_indicators):
-                        ema_lines.append(f"**{ind_name}**")
-                        ema_lines.append(ind_formatted)
-                        ema_lines.append("")
-                    compound_var = f"{symbol}_EMA_{period}"
-                    context[compound_var] = "\n".join(ema_lines).strip()
-                    logger.debug(f"Added compound EMA variable: {compound_var}")
+            # Generate compound EMA variable: {BTC_EMA_15m}
+            if ema_indicators:
+                ema_lines = []
+                for ind_name, ind_formatted in sorted(ema_indicators):
+                    ema_lines.append(f"**{ind_name}**")
+                    ema_lines.append(ind_formatted)
+                    ema_lines.append("")
+                compound_var = f"{symbol}_EMA_{period}"
+                context[compound_var] = "\n".join(ema_lines).strip()
+                logger.debug(f"Added compound EMA variable: {compound_var}")
 
-            # Process market flow indicators
-            if requirements.get('flow_indicators'):
-                from services.market_flow_indicators import get_flow_indicators_for_prompt
+        # Process market flow indicators
+        # Note: flow indicators need db session, create a new one for thread safety
+        if requirements.get('flow_indicators'):
+            from services.market_flow_indicators import get_flow_indicators_for_prompt
+            from database.connection import SessionLocal
 
-                flow_indicators_to_calc = requirements['flow_indicators']
+            flow_indicators_to_calc = requirements['flow_indicators']
+            with SessionLocal() as thread_db:
                 flow_data = get_flow_indicators_for_prompt(
-                    db=db,
+                    db=thread_db,
                     symbol=symbol,
                     period=period,
                     indicators=flow_indicators_to_calc
                 )
 
-                for flow_name in flow_indicators_to_calc:
-                    flow_indicator_data = flow_data.get(flow_name)
-                    formatted = _format_flow_indicator(flow_name, flow_indicator_data)
+            for flow_name in flow_indicators_to_calc:
+                flow_indicator_data = flow_data.get(flow_name)
+                formatted = _format_flow_indicator(flow_name, flow_indicator_data)
 
-                    # Variable name: {BTC_CVD_15m}
-                    var_name = f"{symbol}_{flow_name}_{period}"
-                    context[var_name] = formatted
-                    logger.debug(f"Added flow indicator variable: {var_name}")
+                # Variable name: {BTC_CVD_15m}
+                var_name = f"{symbol}_{flow_name}_{period}"
+                context[var_name] = formatted
+                logger.debug(f"Added flow indicator variable: {var_name}")
 
-        except Exception as e:
-            logger.error(f"Error processing {symbol} {period}: {e}", exc_info=True)
-            continue
+    except Exception as e:
+        logger.error(f"Error processing {symbol} {period}: {e}", exc_info=True)
 
-    logger.info(f"Built context with {len(context)} variables for environment: {environment}")
     return context

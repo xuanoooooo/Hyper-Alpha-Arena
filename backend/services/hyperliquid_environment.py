@@ -13,7 +13,9 @@ from sqlalchemy.orm import Session
 from database.models import Account, HyperliquidPosition, HyperliquidWallet, SystemConfig
 from services.hyperliquid_trading_client import (
     HyperliquidTradingClient,
-    create_hyperliquid_client
+    create_hyperliquid_client,
+    get_cached_trading_client,
+    clear_trading_client_cache
 )
 from utils.encryption import encrypt_private_key, decrypt_private_key
 
@@ -91,6 +93,8 @@ def setup_hyperliquid_account(
             f"Account {account.name} (ID: {account_id}) configured for Hyperliquid {environment.upper()}: "
             f"max_leverage={max_leverage}x, default_leverage={default_leverage}x"
         )
+        # Clear cached trading client for this account/environment since credentials changed
+        clear_trading_client_cache(account_id=account_id, environment=environment)
     except Exception as e:
         db.rollback()
         logger.error(f"Failed to save account configuration: {e}")
@@ -263,11 +267,11 @@ def get_hyperliquid_client(db: Session, account_id: int, override_environment: s
         logger.error(f"Failed to decrypt private key for account {account_id}: {e}")
         raise ValueError(f"Private key decryption failed: {e}")
 
-    # Create and return client
+    # Create and return client (use cached client for performance)
     wallet_address = wallet.wallet_address if wallet else None
     import sys
     print(f"[DEBUG] get_hyperliquid_client: account_id={account_id}, environment={environment}, wallet={wallet}, wallet_address={wallet_address}", file=sys.stderr, flush=True)
-    return create_hyperliquid_client(
+    return get_cached_trading_client(
         account_id=account_id,
         private_key=private_key,
         wallet_address=wallet_address,

@@ -772,6 +772,10 @@ def place_ai_driven_hyperliquid_order(
                                 logger.info(f"✅ GTC fallback order succeeded for SELL {symbol}")
 
                 elif operation == "close":
+                    # For full close (target_portion = 1.0), also cancel all pending orders for this symbol
+                    # This ensures "complete exit" from a trading plan includes both positions and orders
+                    should_cancel_orders = target_portion >= 1.0
+
                     position_to_close = None
                     for pos in positions:
                         if pos.get('coin') == symbol:
@@ -791,6 +795,34 @@ def place_ai_driven_hyperliquid_order(
                         portfolio_positions = portfolio.get('positions') or {}
                         fallback_position = portfolio_positions.get(symbol)
                         if not fallback_position:
+                            # No position found - check if there are pending orders to cancel
+                            if should_cancel_orders:
+                                try:
+                                    pending_orders = client.get_open_orders(db, symbol=symbol)
+                                    if pending_orders:
+                                        logger.info(
+                                            f"[CLOSE {symbol}] No position found, but {len(pending_orders)} pending orders exist. "
+                                            f"Cancelling all orders as target_portion=1.0 (full exit)."
+                                        )
+                                        cancelled_count = 0
+                                        for order in pending_orders:
+                                            order_id = order.get('order_id')
+                                            order_type = order.get('order_type', 'Unknown')
+                                            if order_id:
+                                                try:
+                                                    if client.cancel_order(db, order_id, symbol):
+                                                        cancelled_count += 1
+                                                        logger.info(f"[CLOSE {symbol}] Cancelled {order_type} order #{order_id}")
+                                                except Exception as cancel_err:
+                                                    logger.warning(f"[CLOSE {symbol}] Failed to cancel order #{order_id}: {cancel_err}")
+
+                                        if cancelled_count > 0:
+                                            logger.info(f"[CLOSE {symbol}] Successfully cancelled {cancelled_count}/{len(pending_orders)} pending orders")
+                                            save_ai_decision(db, account, decision, portfolio, executed=True, **decision_kwargs)
+                                            continue
+                                except Exception as orders_err:
+                                    logger.warning(f"[CLOSE {symbol}] Failed to fetch pending orders: {orders_err}")
+
                             logger.warning(f"Unable to locate Hyperliquid position data for {symbol}; skipping close.")
                             save_ai_decision(db, account, decision, portfolio, executed=False, **decision_kwargs)
                             continue
@@ -1056,6 +1088,26 @@ def place_ai_driven_hyperliquid_order(
                             f"{operation.upper()} {symbol} order_id={order_id}"
                         )
                         save_ai_decision(db, account, decision, portfolio, executed=True, **decision_kwargs)
+
+                        # For full close (target_portion = 1.0), cancel any remaining pending orders
+                        if operation == "close" and should_cancel_orders:
+                            try:
+                                remaining_orders = client.get_open_orders(db, symbol=symbol)
+                                if remaining_orders:
+                                    logger.info(
+                                        f"[CLOSE {symbol}] Position closed. Cancelling {len(remaining_orders)} remaining orders (full exit)."
+                                    )
+                                    for order in remaining_orders:
+                                        oid = order.get('order_id')
+                                        otype = order.get('order_type', 'Unknown')
+                                        if oid:
+                                            try:
+                                                if client.cancel_order(db, oid, symbol):
+                                                    logger.info(f"[CLOSE {symbol}] Cancelled {otype} order #{oid}")
+                                            except Exception as cancel_err:
+                                                logger.warning(f"[CLOSE {symbol}] Failed to cancel order #{oid}: {cancel_err}")
+                            except Exception as orders_err:
+                                logger.warning(f"[CLOSE {symbol}] Failed to fetch remaining orders: {orders_err}")
 
                         try:
                             from database.snapshot_connection import SnapshotSessionLocal

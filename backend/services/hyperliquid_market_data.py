@@ -33,6 +33,15 @@ class HyperliquidClient:
                 }
             })
             self._disable_hip3_markets()
+
+            # Pre-load markets to avoid ~3s delay on first API call
+            # Markets are cached in the exchange instance
+            try:
+                self.exchange.load_markets()
+                logger.info(f"CCXT markets pre-loaded for {self.environment}: {len(self.exchange.markets)} markets")
+            except Exception as market_err:
+                logger.warning(f"Failed to pre-load markets (will load on first use): {market_err}")
+
             logger.info(f"Hyperliquid exchange initialized successfully for {self.environment} environment")
         except Exception as e:
             logger.error(f"Failed to initialize Hyperliquid exchange for {self.environment}: {e}")

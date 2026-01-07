@@ -26,6 +26,7 @@ from services.hyperliquid_environment import (
     disable_hyperliquid_trading,
     enable_hyperliquid_trading,
 )
+from services.hyperliquid_trading_client import clear_trading_client_cache
 from services.hyperliquid_symbol_service import (
     get_available_symbols_info,
     get_selected_symbols,
@@ -929,6 +930,9 @@ async def configure_account_wallet(
             db.commit()
             db.refresh(existing_wallet)
 
+            # Clear cached trading client since credentials changed
+            clear_trading_client_cache(account_id=account_id, environment=request.environment)
+
             logger.info(f"Updated {request.environment} wallet for account {account.name} (ID: {account_id}), address: {wallet_address}")
 
             # Builder binding for mainnet wallet after successful save
@@ -997,6 +1001,9 @@ async def configure_account_wallet(
             db.add(new_wallet)
             db.commit()
             db.refresh(new_wallet)
+
+            # Clear cached trading client (in case there was an old cached client)
+            clear_trading_client_cache(account_id=account_id, environment=request.environment)
 
             logger.info(f"Created {request.environment} wallet for account {account.name} (ID: {account_id}), address: {wallet_address}")
 

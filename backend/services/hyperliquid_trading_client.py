@@ -3062,3 +3062,140 @@ def create_hyperliquid_client(
         wallet_address=wallet_address,
         environment=environment
     )
+
+
+# ============================================================================
+# TRADING CLIENT CACHE - Reuse initialized clients to avoid 8s cold start
+# ============================================================================
+# Cache key: (account_id, environment)
+# The CCXT exchange initialization takes ~8 seconds due to market loading.
+# By caching clients, subsequent requests can reuse the initialized exchange.
+#
+# Cache invalidation:
+# - Manual: call clear_trading_client_cache() when wallet config changes
+# - No TTL: REST API clients are stateless, cache persists until server restart
+#   or wallet config changes
+# ============================================================================
+
+from typing import Tuple
+import threading
+
+_trading_client_cache: Dict[Tuple[int, str], Dict[str, Any]] = {}
+_trading_client_cache_lock = threading.Lock()
+
+
+def get_cached_trading_client(
+    account_id: int,
+    private_key: str,
+    environment: str,
+    wallet_address: str = None
+) -> HyperliquidTradingClient:
+    """
+    Get or create a cached HyperliquidTradingClient.
+
+    This function caches initialized clients to avoid the ~8 second cold start
+    time for CCXT exchange initialization. Clients are cached by (account_id, environment).
+
+    Args:
+        account_id: Database account ID
+        private_key: Hyperliquid private key
+        environment: "testnet" or "mainnet"
+        wallet_address: Optional wallet address
+
+    Returns:
+        Cached or newly created HyperliquidTradingClient
+    """
+    cache_key = (account_id, environment)
+    current_time = time.time()
+
+    with _trading_client_cache_lock:
+        # Check if we have a cached client (no TTL - REST clients are stateless)
+        if cache_key in _trading_client_cache:
+            cached = _trading_client_cache[cache_key]
+            logger.debug(f"[CLIENT CACHE] Hit for account {account_id}/{environment}")
+            return cached["client"]
+
+        # Create new client
+        logger.info(f"[CLIENT CACHE] Creating new client for account {account_id}/{environment}")
+        start_time = time.time()
+
+        client = HyperliquidTradingClient(
+            account_id=account_id,
+            private_key=private_key,
+            wallet_address=wallet_address,
+            environment=environment
+        )
+
+        elapsed = time.time() - start_time
+        logger.info(f"[CLIENT CACHE] Client created in {elapsed:.2f}s for account {account_id}/{environment}")
+
+        # Cache the client
+        _trading_client_cache[cache_key] = {
+            "client": client,
+            "created_at": current_time
+        }
+
+        return client
+
+
+def clear_trading_client_cache(account_id: int = None, environment: str = None) -> int:
+    """
+    Clear trading client cache.
+
+    Call this when wallet configuration changes (e.g., new private key).
+
+    Args:
+        account_id: If specified, only clear cache for this account
+        environment: If specified, only clear cache for this environment
+
+    Returns:
+        Number of cache entries cleared
+    """
+    cleared = 0
+    with _trading_client_cache_lock:
+        if account_id is None and environment is None:
+            # Clear all
+            cleared = len(_trading_client_cache)
+            _trading_client_cache.clear()
+            logger.info(f"[CLIENT CACHE] Cleared all {cleared} cached clients")
+        else:
+            # Selective clear
+            keys_to_remove = []
+            for key in _trading_client_cache:
+                acc_id, env = key
+                if (account_id is None or acc_id == account_id) and \
+                   (environment is None or env == environment):
+                    keys_to_remove.append(key)
+
+            for key in keys_to_remove:
+                del _trading_client_cache[key]
+                cleared += 1
+
+            logger.info(f"[CLIENT CACHE] Cleared {cleared} cached clients for account={account_id}, env={environment}")
+
+    return cleared
+
+
+def get_trading_client_cache_stats() -> Dict[str, Any]:
+    """
+    Get cache statistics for monitoring.
+
+    Returns:
+        Dict with cache stats
+    """
+    with _trading_client_cache_lock:
+        current_time = time.time()
+        entries = []
+        for key, value in _trading_client_cache.items():
+            acc_id, env = key
+            age = current_time - value["created_at"]
+            entries.append({
+                "account_id": acc_id,
+                "environment": env,
+                "age_seconds": round(age, 1)
+            })
+
+        return {
+            "total_cached": len(_trading_client_cache),
+            "entries": entries
+        }
